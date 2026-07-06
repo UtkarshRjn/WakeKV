@@ -1,0 +1,349 @@
+KV-CACHE IDEATION NOTES (saved from conversation, 2026-07-04)
+================================================================
+
+CONTEXT
+-------
+Goal: come up with my own algorithmic idea in adaptive KV-cache management,
+publishable at a workshop, with low compute. The analogy used throughout:
+the KV cache is an office building — layers = floors, heads = workers,
+seq_len = one folder per word seen so far, head_dim = numbers inside a folder.
+
+THE FIELD IN 8 SIMPLE TENSIONS (each one hides a research idea)
+---------------------------------------------------------------
+1. Folders are kept or tossed based on popularity.
+   Rule today: workers opened it a lot recently -> keep; nobody opened it -> toss.
+   Catch: "nobody opened it YET" doesn't mean nobody will need it tomorrow
+   (why chatbots forget earlier conversation under compression).
+   Think: can we guess FUTURE usefulness from anything besides past popularity?
+
+2. Every folder has a label and contents — we only ever look at the label.
+   Label (key) = used to find it; papers inside (value) = what actually gets
+   used. All scoring is label-matching (attention). Two folders found equally
+   often can contain a contract vs a sticky note.
+   Think: shouldn't "how much is inside" also matter when deciding what to toss?
+
+3. Everyone gets the same shelf space, but workers aren't equal.
+   Lazy workers check only newest folders; star workers dig through everything.
+   Adaptive methods give stars more space — but assigned ONCE, at the start.
+   Think: what do we learn halfway through the job that would make us
+   re-divide the shelves?
+
+4. Tossing isn't the only option — there's a whole range.
+   Per folder: keep / photocopy smaller (quantize) / staple into a similar
+   folder (merge) / basement archive (offload to CPU) / shred (evict).
+   Shredding is forever; the rest are softer. Each option is a separate
+   research camp; almost nobody chooses per-folder among all five.
+   Think: which folders deserve the shredder vs just the basement?
+
+5. Popularity is measured by a quick glance, not a real count.
+   We watch workers for a few minutes (small observation window) and treat
+   the sample as truth. "Opened twice vs once" in that window may be luck.
+   Think: how to rank folders knowing the counts are partly random noise?
+
+6. Folders are stored in boxes of 16 — you can only reclaim whole boxes.
+   vLLM frees space only when a box is COMPLETELY empty. Shred 90% of
+   folders scattered evenly and ~81% of boxes still hold one survivor —
+   almost no space freed. Papers brag about folders shredded, not boxes freed.
+   Think: should we choose which folders to shred — or which boxes to empty?
+
+7. Nobody reads what's written on the folders.
+   All rules use statistics, but the text has obvious structure: thinking vs
+   connector parts in reasoning, heavy repetition in long CoT, question vs
+   background in chat. ThinKV (ICLR 2026) used this: kept "thinking" folders,
+   squashed "connector" ones -> threw away 95% with almost no damage.
+   Think: what other patterns in the text itself is everyone ignoring?
+
+8. Small buildings have no room for error.
+   Big models tolerate mistakes (workers keep overlapping notes). Tiny
+   on-device models (GQA, few KV heads) have no backup copies. The popular
+   shredding rules were only tested in big buildings.
+   Think: which rules break first as the building shrinks?
+
+MY IDEA (v0): DYNAMIC WORKER PRIORITY
+-------------------------------------
+"Can we change a worker's priority (lazy vs active) WHILE the job is
+running, and re-divide shelf space dynamically?"
+
+Assessment from Claude:
+- The direction is real and validated — it's where the frontier is.
+- Nearby existing work (must lit-check before committing):
+  * Ada-KV, CAKE: input-dependent budgets, but decided essentially once
+    (at prompt processing).
+  * LAVa (EMNLP 2025 Findings): advertises "fully dynamic" head+layer
+    budgets emerging from score comparisons at each compression event.
+  * DynamicKV (needs verification): adjusts per-layer budgets during
+    inference.
+  Neighbors prove the direction is publishable; the job is to find what
+  they DON'T do.
+
+- THE CRUX (where the actual idea lives): redistribution is one-directional.
+  If lazy worker H3 suddenly becomes active mid-job, his old folders were
+  already shredded — giving him empty shelves doesn't bring them back.
+  Dynamic re-allocation is easy in the "take space away" direction and
+  nearly useless in the "give space back" direction, because eviction is
+  irreversible (tension 3 colliding with tension 4).
+
+- Three design questions whose answers ARE the algorithm:
+  1. Early-warning signal: how to detect a lazy worker is ABOUT TO become
+     active — before his folders are gone? (recent text? attention trend?
+     task phase?)
+  2. Demotion policy: what happens to a demoted worker's folders — shred
+     (cheap, irreversible) or something softer (photocopy smaller /
+     basement) so a later promotion can actually be honored?
+     Note: dynamic-budget papers appear to all use shredding, making their
+     "dynamism" quietly one-directional. Reversible demotion would be a
+     different animal. (One possible answer among several — not the only one.)
+  3. Re-division schedule: every word (expensive), every N words, or only
+     on a detected change — and what counts as "something changed"?
+
+NEXT STEP
+---------
+Literature check on what LAVa and DynamicKV actually do during decoding,
+to map precisely which answers to the three questions are already taken.
+
+MY OWN RETELLING OF THE 8 TENSIONS (2026-07-04, active recall)
+--------------------------------------------------------------
+1. Folders are kept or tossed based on popularity. Today's rule: "if
+   workers opened a folder a lot recently, keep it; if nobody opened it,
+   toss it." Catch: just because nobody opened a folder yet doesn't mean
+   nobody will need it tomorrow. (Exactly why chatbots forget things from
+   earlier in a conversation when the cache is compressed.)
+   Think: can we guess a folder's future usefulness by anything other
+   than its past popularity?
+
+2. Every folder has a label and contents — we only ever look at the
+   label. Label = used to find it; papers inside = what actually gets
+   used once found. All popularity scoring looks at label-matching only.
+   Two folders might get found equally often, but one contains a whole
+   contract and the other a sticky note.
+   Think: shouldn't "how much is inside" also matter when deciding what
+   to toss?
+
+3. Everyone gets the same shelf space, but workers aren't equal. Lazy
+   workers only check the newest few folders; star workers dig through
+   everything. Newer "adaptive" methods give stars more — but shelf space
+   is assigned once, at the start; it never changes while the work is
+   happening.
+   Think: what might we learn halfway through the job that would make us
+   want to re-divide the shelves?
+
+4. Tossing isn't the only option — there's a whole range. Keep as is /
+   photocopy smaller (quantization) / staple into a similar folder
+   (merging) / basement archive (offload to CPU) / shred (evict).
+   Shredding is forever; the others are softer. Each option is a separate
+   research camp — almost nobody chooses per folder among all five.
+   Think: which folders deserve the shredder, and which just deserve the
+   basement?
+
+5. Popularity is measured by a quick glance, not a real count. Dirty
+   secret: we never watch all workers all day (too expensive). We watch
+   for a few minutes and treat that tiny sample as truth. "Opened twice
+   vs once" during the observation could be pure luck.
+   Think: how would you rank folders if you knew your popularity counts
+   were partly random noise?
+
+6. Folders are stored in boxes of 16 — and you can only reclaim whole
+   boxes. The warehouse (vLLM) frees space only when a box is completely
+   empty. Shred 90% of folders scattered evenly and almost every box
+   still has one survivor — you free almost nothing. Papers brag about
+   folders shredded, not boxes freed.
+   Think: should we be choosing which folders to shred — or which boxes
+   to empty?
+
+7. Nobody reads what's written on the folders. All rules above use
+   statistics, but the text has obvious patterns: math solutions have
+   "thinking" vs boring "connector" parts; long reasoning repeats itself;
+   chat has questions vs background. ThinKV finally used this — kept the
+   thinking, squashed the connectors, threw away 95% with almost no
+   damage.
+   Think: what other obvious patterns in the text is everyone ignoring?
+
+8. Small buildings have no room for error. Big models tolerate mistakes
+   because many workers keep overlapping notes — shred the wrong folder
+   and someone else has a copy. Tiny phone-sized models (GQA, few KV
+   heads) have no overlap, no backups. All popular shredding rules were
+   tested only in big buildings.
+   Think: do big-building rules still work in a small building — and
+   which rule breaks first?
+
+DIRECTION 8 — EXPERIMENT SHAPE (Q: "shall I run tests on each model?")
+----------------------------------------------------------------------
+Yes — but a deliberate grid, not "every model":
+- Methods: one representative per family (~5 total): StreamingLLM
+  (position rule), H2O (cumulative popularity), SnapKV (query-aware
+  glance), PyramidKV (fixed layer budgets), Ada-KV (adaptive head
+  budgets). All in KVCache-Factory already.
+- Models: a SIZE LADDER within one family isolates size from everything
+  else: Qwen2.5 0.5B / 1.5B / 3B / 7B. Add Llama-3.2 1B / 3B (+ 3.1-8B
+  anchor) for cross-family generality.
+- Budgets: 100% / 50% / 25% / 10% cache.
+- Eval: LongBench subset + one needle test. ~5 methods x ~6 models x
+  4 budgets, each run cheap at small scale; single 24GB GPU, weeks.
+- Headline plot: accuracy-vs-budget curve per model size. "Which algo
+  fails first" = whose curve collapses earliest as the building shrinks.
+  Even stronger finding if the METHOD RANKING inverts with scale.
+- The step that makes it a paper, not a benchmark run: correlate the
+  breakage with the mechanism — number of KV heads (GQA sharing), head
+  redundancy/overlap. "Method X breaks below 3B BECAUSE only 4-8 KV
+  heads leave no slack for per-head mistakes" is the publishable claim.
+- Before any GPU time: 2-3 day literature check that no 2025-26 paper
+  already did the small-model study. Then reproduce ONE published 7-8B
+  number in KVCache-Factory to prove the harness works.
+
+MY IDEA (v1): DYNAMIC WORKER PRIORITY + BASEMENT INSTEAD OF SHREDDER
+--------------------------------------------------------------------
+(Tension 3 x Tension 4. Supersedes v0 by answering its design question
+#2: demotion = offload to CPU, not evict.)
+
+One-line pitch: "Dynamic DuoAttention with an undo button" — head-level
+priority that changes DURING decoding, in both directions, because a
+demoted head's folders go to the basement (CPU) and can be brought back
+when the head is promoted again.
+
+Why the gap looks open (pre-lit-check):
+- DuoAttention (2024): retrieval vs streaming head castes, but assigned
+  OFFLINE, once, static during the run.
+- ArkVale (NeurIPS 2024): evict-with-CPU-backup and recall — reversible,
+  but treats all heads alike (no per-head priority).
+- ShadowKV / InfiniGen: CPU offload + selective fetch per step — again
+  head-uniform.
+- Ada-KV / LAVa: per-head budgets, but demotion = shredder.
+Intersection (head-adaptive + reversible two-tier) appears unclaimed.
+
+The two hard problems that ARE the algorithm:
+1. Basement is far away (PCIe ~50-100x slower than HBM). Need an
+   EARLY-WARNING signal so promoted folders are prefetched and the
+   transfer overlaps compute instead of stalling decode. Candidate
+   signals: head attention entropy trending up, score drift over recent
+   tokens, task-phase change in the text.
+2. Trigger economics: re-evaluating priorities must cost less than it
+   saves. Every token? Every N? Only on detected change — and what
+   counts as change?
+
+Cheapest first experiment (make-or-break, ~1 week, tiny compute):
+Measure whether head importance actually shifts mid-generation ("do lazy
+workers ever wake up?"), how often, on which tasks. If never: idea dies
+cheaply. If yes: that measurement is the paper's Figure 1 AND the
+early-warning signal.
+
+IDEA TRACKER
+------------
+Status key: [ACTIVE] pursuing now | [SHAPED] experiment designed, not
+started | [SKETCH] outline exists, no commitment | [OPEN] tension noted,
+no idea formed yet | [DROPPED] superseded or killed.
+
+| # | Direction / idea                                  | Status    | Next gate                              |
+|---|---------------------------------------------------|-----------|----------------------------------------|
+| T1| Future usefulness beyond past popularity          | [OPEN]    | think                                  |
+| T2| Value-aware scoring (contents, not just label)    | [OPEN]    | think (LAVa criticizes Ada-KV on this) |
+| T3| Dynamic budget re-division mid-run                | [ACTIVE]  | folded into v1                         |
+| T4| Per-folder choice among keep/quant/merge/offload/ | [ACTIVE]  | folded into v1 (offload as demotion)   |
+|   | evict                                             |           |                                        |
+| T5| Rank folders under noisy popularity counts        | [SKETCH]  | PEBS-style shrinkage idea (Claude's    |
+|   |                                                   |           | example, not mine) — revisit if v1 dies|
+| T6| Choose boxes to empty, not folders to shred       | [OPEN]    | think (block-aware eviction gap real)  |
+| T7| Text structure beyond ThinKV (diffusion LLMs,     | [OPEN]    | think                                  |
+|   | agent traces, code vs prose)                      |           |                                        |
+| T8| Small-model stress test (which algo fails first)  | [SHAPED]  | lit check, then harness + size ladder  |
+| v0| Dynamic worker priority (evict-based)             | [DROPPED] | superseded by v1                       |
+| v1| Dynamic head priority + reversible offload        | [ACTIVE]  | lit check DONE 2026-07-06: gap CONFIRMED|
+|   |                                                   |           | (narrow) — see LIT CHECK RESULTS below |
+
+LIT CHECK RESULTS FOR v1 (2026-07-06, four parallel agent sweeps)
+=================================================================
+
+VERDICT: The exact combination is UNCLAIMED as of July 2026, but the
+gap is narrow and closing fast (three near-misses appeared Nov 2025 -
+Jun 2026). It is a two-axis gap:
+  - Decode-time head-wise budget reallocation EXISTS (ReasonAlloc) but
+    is evict-only — demotion destroys KV; a re-grown budget cannot
+    recover lost entries.
+  - Reversible per-head CPU offload with recall EXISTS (FlexiCache,
+    HeteroCache) but head roles/budgets are frozen offline or at
+    prefill — no head is ever promoted/demoted during decoding.
+  - Nobody does BOTH: online head-priority changes + offload-based
+    reversible demotion.
+
+READY-MADE FRAMING SENTENCE (from the sweep):
+"Prior decode-time reallocation is evict-only (ReasonAlloc); prior
+reversible head offloading is static-budget (FlexiCache, HeteroCache);
+we make head priority both dynamic and reversible."
+
+PREMISE STATUS: PROVEN — do not spend time measuring it.
+"Retrieval Heads are Dynamic" (arXiv:2602.11162, ACL 2026) directly
+measures head-set turnover across decode steps (adjacent-step Jaccard
+~0.28-0.51). Cite it as the premise. Bonus: it shows hidden states
+PREDICT future head roles -> candidate early-warning/prefetch signal.
+Also Meta FAIR 2502.09647: heads swing local<->long-context per query,
+predictable from local keys alone -> second candidate trigger signal.
+(Downside: a pure "do heads drift?" measurement study is scooped.)
+
+MUST-CITE COMPETITOR TABLE
+--------------------------
+| Paper        | ID           | What it has                | What it lacks              |
+|--------------|--------------|----------------------------|----------------------------|
+| FlexiCache   | 2511.00868   | per-head policy, CPU       | head classes frozen from   |
+| (MLSys 2026) |              | offload, page recall every | ONE offline profile;       |
+|              |              | 16 steps                   | uniform global top-K       |
+| HeteroCache  | 2601.13684   | 4 head roles, CPU          | roles + budgets fixed at   |
+| (ACL 2026?)  |              | reservoir, drift-triggered | offline calibration;       |
+|              |              | content refresh            | content moves, not budgets |
+| ReasonAlloc  | 2606.11164   | ONLINE head-wise budget    | evict-only, irreversible;  |
+| (Jun 2026)   |              | recompute every 128 decode | no offload; math-reasoning |
+|              |              | steps (bidirectional #s)   | eval only                  |
+| HARD-KV      | 2606.28831   | decode-time per-head top-p | budgets not roles;         |
+|              |              | budget fluctuation + vLLM  | reversibility unclear      |
+|              |              | CUDA-graph handling        |                            |
+| HeadInfer    | 2502.12574   | head-granular CPU offload  | importance-blind fixed     |
+| (ICML 2025)  |              | (proves mechanism feasible)| ping-pong schedule         |
+| RetrHeads    | 2602.11162   | per-step head drift        | analysis only, no cache    |
+| areDynamic   |              | measurement + predictive   | system built on it         |
+| (ACL 2026)   |              | hidden-state signal        |                            |
+
+Also position against: DuoAttention/RazorAttention/MoA/HeadKV (static
+role family), Ada-KV/CAKE/LAVa/DynamicKV (ALL prefill-only — LAVa's
+"fully dynamic" = input-adaptive at prefill; DynamicKV paper literally
+says "during the decoding phase, no modifications are applied"),
+R-KV/G-KV/ThinKV/SCOPE (decode-time compressors, uniform per-head
+budgets — R-KV calls budget allocation "orthogonal"), ArkVale/ShadowKV/
+InfiniGen/FreeKV (offload-recall, head-uniform).
+
+POSITIONING BURDEN (what reviewers will demand)
+-----------------------------------------------
+1. Show static head classification MEASURABLY FAILS somewhere:
+   long reasoning traces, task-phase shifts, multi-turn — the settings
+   where 2602.11162 says roles churn most. This attacks FlexiCache's
+   core premise ("temporal stability is model-intrinsic").
+2. Show reversible demotion BEATS evict-based reallocation
+   (ReasonAlloc-style) at equal GPU-resident budget.
+3. Explicit delta vs HARD-KV (budgets vs roles; reversibility).
+4. Handle the GQA constraint (BaKlaVa): budgets are per KV-GROUP, not
+   per query head — small models have only 4-8 KV groups.
+5. PCIe economics: promotion latency must be hidden (prefetch via
+   early-warning signal) or the method stalls decode.
+
+RISKS
+-----
+- Window closing: 3 near-misses in 8 months. Move in weeks. Re-check
+  arXiv immediately before submission (esp. HeteroCache v2).
+- ReasonAlloc overlap is the most dangerous review: the delta is
+  reversibility + generality beyond math reasoning. Make it sharp.
+
+NEXT STEPS (in order)
+---------------------
+1. Read the big four closely: FlexiCache, HeteroCache, ReasonAlloc,
+   Retrieval-Heads-are-Dynamic (2-3 days).
+   -> DONE 2026-07-06 via four parallel deep-read agents. Consolidated
+      briefing: big_four_deep_read.md (same folder — KEEP PRIVATE, do
+      not commit). Gap CONFIRMED and sharpened; system path = fork
+      FlexiCache; battlegrounds = long CoT / multi-turn / cross-genre.
+2. Design the "static fails" demonstration: pick workload (long CoT /
+   multi-turn), show frozen head classes leave quality on the table.
+   This is Figure 1 and the paper's reason to exist.
+3. Minimal system: demote = offload head's KV to CPU; promote = prefetch
+   back on early-warning signal (candidates: hidden-state predictor from
+   2602.11162, attention entropy drift, local-key predictor from
+   2502.09647). Small model (Qwen2.5-3B / Llama-3.1-8B), single GPU.
+4. Eval: quality vs GPU-resident-bytes vs ReasonAlloc-style eviction +
+   FlexiCache-style static offload; LongBench subset + one reasoning
+   set + one multi-turn (SCBench subset).
