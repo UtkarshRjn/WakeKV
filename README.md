@@ -39,5 +39,19 @@ Notes: models load with `attn_implementation="eager"` (needed to read
 attention weights); each step's attention is reduced to top-k immediately,
 so logs stay ~100–200 MB per run.
 
+## Phase 1 — wake-up signal study
+
+Consumes Phase-0 logs; no extra GPU time. Evaluates candidate early-warning
+signals (online RCO, drift trigger, entropy trend, needle-mass delta) for
+precision/recall at lead times 1–32 steps, against the PCIe transfer bar
+(gate G1 in the plan):
+
+```bash
+python scripts/analyze_phase1.py runs/Qwen__Qwen2.5-7B-Instruct/niah \
+    --pcie-gbps 21 --decode-step-ms 30   # override with measured values
+```
+
+Output: `signal_study.md` per task dir — the G1 gate report.
+
 **Private:** contains unpublished research strategy. Do not make public
 before the preprint is out.
