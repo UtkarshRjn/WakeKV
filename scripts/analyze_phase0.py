@@ -65,11 +65,10 @@ def analyze_run(run_dir: Path, page_size: int, thresholds: list[float]) -> dict:
     # FlexiCache-style temporal stability on page-level top-k sets.
     n_pages_per_step = [max(1, int(c) // page_size + 1) for c in data["ctx_len"]]
     per_unit = page_sets(data["topk_idx"], page_size)
-    k_pages = max(1, K // page_size)
     ts_means = []
     window = min(16, S)
     for unit_sets in per_unit:
-        ts = temporal_stability(unit_sets, n_pages_per_step, k_pages, window=window)
+        ts = temporal_stability(unit_sets, n_pages_per_step, k=None, window=window)
         if len(ts):
             ts_means.append(float(ts.mean()))
     ts_means = np.array(ts_means)
