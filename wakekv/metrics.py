@@ -52,21 +52,26 @@ def activation_entropy(activation_counts: np.ndarray) -> float:
     return float(-(p * np.log(p)).sum())
 
 
-def rco(a: set, b: set, k: int, n: int) -> float:
+def rco(a: set, b: set, k: int | None, n: int) -> float:
     """Random-Corrected Overlap between two top-k index sets (FlexiCache).
 
     RCO = max(0, (|A∩B|/K − K/N) / (1 − K/N)); 0 = chance-level, 1 = identical.
     ``n`` is the candidate-pool size (e.g. number of pages at that step).
+    ``k=None`` uses min(|A|, |B|) — required when sets are DERIVED (e.g.
+    pages from top-k tokens) and their sizes vary per step; passing a
+    fixed nominal k there inflates the ratio past 1 and hides churn.
     """
+    if k is None:
+        k = min(len(a), len(b))
     if n <= k or k == 0:
         return 1.0
-    raw = len(a & b) / k
+    raw = min(1.0, len(a & b) / k)
     chance = k / n
     return max(0.0, (raw - chance) / (1.0 - chance))
 
 
 def temporal_stability(
-    topk_sets: list[set], pool_sizes: list[int], k: int, window: int = 16
+    topk_sets: list[set], pool_sizes: list[int], k: int | None, window: int = 16
 ) -> np.ndarray:
     """Per-step temporal stability TS(s) = mean_{Δ=1..W-1} RCO(s, s+Δ).
 
