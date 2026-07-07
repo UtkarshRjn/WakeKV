@@ -49,7 +49,7 @@ def wake_events(
 # Candidate signals — each returns [steps] per head, higher = "waking up"
 # ---------------------------------------------------------------------------
 
-def signal_online_rco(topk_sets: list[set], pool_sizes: list[int], k: int) -> np.ndarray:
+def signal_online_rco(topk_sets: list[set], pool_sizes: list[int], k: int | None) -> np.ndarray:
     """1 - RCO between consecutive top-k sets (FlexiCache's statistic, online)."""
     out = np.zeros(len(topk_sets))
     for t in range(1, len(topk_sets)):

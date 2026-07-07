@@ -69,7 +69,6 @@ def main() -> None:
         flat_score = score.reshape(S, L * H)
         topk_val = data["topk_val"].reshape(S, L * H, -1)
         pool = [max(1, int(c) // args.page_size + 1) for c in data["ctx_len"]]
-        k_pages = max(1, data["topk_idx"].shape[-1] // args.page_size)
 
         units_with_events = []
         for u in range(L * H):
@@ -83,7 +82,7 @@ def main() -> None:
         for u, ev in units_with_events[: args.max_heads or None]:
             sets = per_head_page_sets(data["topk_idx"], u, args.page_size)
             sigs = {
-                "online_rco": signal_online_rco(sets, pool, k_pages),
+                "online_rco": signal_online_rco(sets, pool, k=None),
                 "drift": signal_drift(sets),
                 "entropy_trend": signal_entropy_trend(topk_val[:, u]),
                 "needle_mass_delta": signal_needle_mass_delta(flat_score[:, u]),
