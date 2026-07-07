@@ -98,7 +98,11 @@ def run_instrumented_generation(
     n_heads = cfg.num_attention_heads
 
     # Prefill everything except the last prompt token, no attention output.
-    out = model(input_ids[:, :-1], use_cache=True)
+    # Call the base model (no LM head) so we don't materialize full-sequence
+    # logits — logits.float() over [seq, vocab] is a multi-GB peak on long
+    # contexts and the prefill logits are unused (only the KV cache is kept).
+    base = getattr(model, "model", model)
+    out = base(input_ids[:, :-1], use_cache=True)
     past = out.past_key_values
     cur = input_ids[:, -1:]
 
