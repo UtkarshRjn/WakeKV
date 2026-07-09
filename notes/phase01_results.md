@@ -102,14 +102,58 @@ wake-ups; low precision → constant over-promotion → heads stay GPU-resident
 - **G1 no-cheaply**: proactive predict-and-prefetch fails with cheap
   statistics — a clean, publishable negative result.
 
-Two ways forward:
-1. **Reactive (R2 fallback)** — demote to CPU, fetch on demand when a head
-   reaches for offloaded pages, measure the stall honestly. Fully supported
-   by data in hand; still occupies the novel gap.
-2. **Coarse proactive** — pending check: are wake-ups *temporally clustered*
-   (many heads waking at reasoning-phase boundaries)? If yes, one boundary
-   trigger could recover high recall at low alarm count where per-head
-   z-scores drowned. ~20 min, no GPU, on existing logs. Decides the fork.
+### Follow-up: are wake-ups temporally clustered? (decides proactive vs reactive)
+
+`analyze_clustering.py` pools per-head wake events into a per-step histogram
+and tests concentration in the busiest steps against a per-head uniform-
+shuffle null.
+
+CoT (5 runs), per-run z of concentration vs null:
+
+| run | events | z | Fano | max co-wake |
+|---|---|---|---|---|
+| math500-0 | 28 | +0.1 | 1.0 | 2 |
+| math500-1 | 217 | **+29.4** | 6.7 | 22 |
+| math500-2 | 55 | +3.9 | 1.3 | 4 |
+| math500-3 | 38 | +5.6 | 1.6 | 5 |
+| math500-4 | 69 | +9.5 | 1.5 | 3 |
+
+Mean z **+9.7** — wake-ups **are** genuinely bunched in time beyond chance
+(4/5 runs significant; only the smallest run is Poisson). The earlier
+"not clustered" read was a metric artifact.
+
+But clustering isn't *tight* enough for a coarse trigger to be a clean win:
+
+| trigger budget (top-frac of steps) | mean z | concentration ratio vs null | boundary-recall |
+|---|---|---|---|
+| 2% of steps | +9.7 | 1.65 | 0.54 |
+| 5% of steps | +9.7 | 1.29 | 0.86 |
+
+Fire narrow (2%) → catch only 54% of wake-ups. Fire wide (5%) → catch 86%
+but the edge over random shrinks to 1.29x (5% of a long trace is a big
+chunk). And the "busiest steps" are picked *after* seeing events — at
+runtime you'd need a detectable boundary signal aligned with the bursts,
+which is unshown. So a coarse boundary-prefetch trigger is **borderline,
+not a clean win**.
+
+### Fork resolved: REACTIVE
+
+Both cheap proactive routes are ruled out:
+- per-head signal (G1 z-score): precision 0.06–0.20 — no usable predictor.
+- coarse boundary trigger (clustering): real bursts, but not tight or
+  runtime-detectable enough.
+
+**Decision: build WakeKV as a reactive system** — demote cooling heads to
+CPU, fetch on demand when a head reaches for offloaded pages, measure the
+promotion stall honestly (cf. FlexiCache, which pauses ~1/16 of the batch).
+This still occupies the novel gap (dynamic per-head residency vs. frozen
+FlexiCache / evict-only ReasonAlloc). The prediction negative result and
+the burstiness finding become supporting analysis in the paper, motivating
+the reactive choice.
+
+The actual value of WakeKV is still unproven — it now rests on Phase 2/3
+showing reactive dynamic residency beats FlexiCache in shifting-role
+regimes (long CoT, multi-turn) at an acceptable stall cost.
 
 ## Caveats
 - Scout scale: 1–3 model sizes, n=1 for NIAH/multi-turn, n=5 for CoT
