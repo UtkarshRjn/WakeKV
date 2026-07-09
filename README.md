@@ -9,6 +9,10 @@ back. Targeting a workshop paper (NeurIPS 2026 workshops primary, ICLR
 - [`RESEARCH_PLAN.md`](RESEARCH_PLAN.md) — claims, phases, decision gates,
   risks, compute budget.
 - [`notes/`](notes/) — literature deep-reads and ideation trail.
+- [`notes/phase01_results.md`](notes/phase01_results.md) — **Phase 0–1
+  results** (numeric record): G0 PASS (heads churn during decoding), G1
+  cheap signals cannot predict wake-ups well enough to prefetch. Plain-
+  language version: [`docs/phase01_explainer.html`](docs/phase01_explainer.html).
 - [`wakekv/`](wakekv/) + [`scripts/`](scripts/) — implementation (see below).
 
 ## Phase 0 — churn measurement harness
