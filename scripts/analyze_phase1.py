@@ -23,6 +23,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from wakekv.signals import (
+    causal_zscore,
     evaluate_fixed_threshold,
     evaluate_signal,
     page_kv_bytes,
@@ -53,6 +54,10 @@ def main() -> None:
     ap.add_argument("--max-heads", type=int, default=0, help="0 = only heads with events")
     ap.add_argument("--fixed-quantile", type=float, default=0.9,
                     help="global threshold = this quantile of pooled signal values")
+    ap.add_argument("--z-threshold", type=float, default=2.0,
+                    help="fire when causal per-head z-score exceeds this")
+    ap.add_argument("--z-window", type=int, default=32,
+                    help="trailing window for the causal per-head z-score")
     args = ap.parse_args()
 
     task_dir = Path(args.task_dir)
@@ -171,6 +176,34 @@ def main() -> None:
                     fixed_best[name] = (f1, lead, r.precision, r.recall)
     lines += ["", "Winner under a fixed threshold (best F1 at lead >= bar):"]
     for name, (f1, lead, p, r) in sorted(fixed_best.items(), key=lambda kv: -kv[1][0]):
+        lines.append(f"- {name}: lead {lead} -> P {p:.2f}, R {r:.2f} (F1 {f1:.2f})")
+
+    # Deployable middle ground: causal per-head z-score (each head normalized
+    # against its OWN trailing window, using only past values) + one global
+    # z-threshold. Fair across heterogeneous heads and fires online — this is
+    # the number the Phase 2 controller can actually hit.
+    lines += ["", f"## Causal per-head z-score + global z>{args.z_threshold} (deployable)",
+              "Each head's signal normalized against its own past "
+              f"(window {args.z_window}); one z-threshold for all heads. "
+              "No label peeking, fires online.", "",
+              "| signal | lead | precision | recall | events | alarms |",
+              "|---|---|---|---|---|---|"]
+    z_best = {}
+    for name, per_head in raw.items():
+        zper = [(causal_zscore(sig, window=args.z_window), ev) for sig, ev in per_head]
+        res = evaluate_fixed_threshold(zper, args.z_threshold)
+        for lead in sorted(res):
+            r = res[lead]
+            lines.append(f"| {name} | {lead} | {r.precision:.2f} | {r.recall:.2f} "
+                         f"| {r.n_events} | {r.n_alarms} |")
+            if lead >= steps_bar and not np.isnan(r.precision):
+                f1 = 0.0 if (r.precision + r.recall) == 0 else \
+                    2 * r.precision * r.recall / (r.precision + r.recall)
+                cur = z_best.get(name)
+                if cur is None or f1 > cur[0]:
+                    z_best[name] = (f1, lead, r.precision, r.recall)
+    lines += ["", "Winner under causal z-score (best F1 at lead >= bar):"]
+    for name, (f1, lead, p, r) in sorted(z_best.items(), key=lambda kv: -kv[1][0]):
         lines.append(f"- {name}: lead {lead} -> P {p:.2f}, R {r:.2f} (F1 {f1:.2f})")
 
     (task_dir / "signal_study.md").write_text("\n".join(lines) + "\n")

@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from wakekv.signals import (
+    causal_zscore,
     evaluate_fixed_threshold,
     evaluate_signal,
     page_kv_bytes,
@@ -103,6 +104,31 @@ def test_fixed_threshold_penalizes_false_alarms():
     r = res[2]
     assert r.recall == 1.0
     assert r.precision < 0.2  # ~49 alarms, only a few near the single event
+
+
+def test_causal_zscore_ignores_constant_baseline():
+    # A head that always churns at the same rate -> z-score ~0 (no anomaly),
+    # even though its raw signal is high. This is the whole point: normalize
+    # away each head's own baseline so a spike ABOVE normal is what fires.
+    flat_high = np.full(60, 0.8)
+    z = causal_zscore(flat_high, window=16)
+    assert np.abs(z).max() < 1e-6
+
+
+def test_causal_zscore_flags_spike_above_own_normal():
+    sig = np.concatenate([np.full(40, 0.1), np.array([0.9]), np.full(10, 0.1)])
+    z = causal_zscore(sig, window=16)
+    assert z[40] > 3.0  # the jump is many sigma above this head's baseline
+    assert z[20] == pytest.approx(0.0, abs=1e-6)  # steady baseline -> no alarm
+
+
+def test_causal_zscore_is_causal():
+    # z at step t must not depend on values at t or later beyond x_t itself:
+    # changing a future value leaves earlier z-scores untouched.
+    a = np.concatenate([np.full(20, 0.1), np.full(20, 0.5)])
+    b = a.copy(); b[30] = 9.0
+    za, zb = causal_zscore(a, window=8), causal_zscore(b, window=8)
+    assert np.allclose(za[:30], zb[:30])
 
 
 def test_transfer_math():

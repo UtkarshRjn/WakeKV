@@ -180,6 +180,32 @@ def evaluate_fixed_threshold(
     return out
 
 
+def causal_zscore(signal: np.ndarray, window: int = 32, warmup: int = 4) -> np.ndarray:
+    """Per-head causal z-score: (x_t - trailing mean) / trailing std.
+
+    Uses only past values (deployable online), and normalizes away each
+    head's own baseline churn rate. A fixed threshold on the z-score is
+    therefore fair across heterogeneous heads — the deployable middle
+    ground between the per-head-best oracle (peeks at labels) and a single
+    global raw threshold (too strict, since heads churn at different rates).
+    """
+    out = np.zeros(len(signal), dtype=np.float64)
+    for t in range(len(signal)):
+        past = signal[max(0, t - window) : t]
+        if len(past) >= warmup:
+            mu = float(past.mean())
+            sd = float(past.std())
+            dev = signal[t] - mu
+            if sd > 1e-9:
+                out[t] = dev / sd
+            elif abs(dev) > 1e-9:
+                # Dead-flat baseline then a jump: the clearest wake-up there
+                # is. Don't let the zero-variance guard silence it — saturate
+                # well above any usable z-threshold instead of returning 0.
+                out[t] = 10.0 if dev > 0 else -10.0
+    return out
+
+
 def pooled_threshold(per_head: list[tuple[np.ndarray, list[int]]], quantile: float) -> float:
     """A single global threshold: the given quantile of all signal values
     pooled across heads. Used to grade a signal as the controller would."""
