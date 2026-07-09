@@ -73,6 +73,10 @@ def main() -> None:
         S, L, H = score.shape
         flat_score = score.reshape(S, L * H)
         topk_val = data["topk_val"].reshape(S, L * H, -1)
+        # Read topk_idx once per run: decompressing this large npz member on
+        # every head (via zipfile) is slow and segfaults numpy's inflate path
+        # after many repeated reads.
+        topk_idx = data["topk_idx"]
         pool = [max(1, int(c) // args.page_size + 1) for c in data["ctx_len"]]
 
         units_with_events = []
@@ -85,7 +89,7 @@ def main() -> None:
               f"events: {sum(len(e) for _, e in units_with_events)}")
 
         for u, ev in units_with_events[: args.max_heads or None]:
-            sets = per_head_page_sets(data["topk_idx"], u, args.page_size)
+            sets = per_head_page_sets(topk_idx, u, args.page_size)
             sigs = {
                 "online_rco": signal_online_rco(sets, pool, k=None),
                 "drift": signal_drift(sets),
