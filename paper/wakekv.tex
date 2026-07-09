@@ -110,9 +110,11 @@ the full attention map: prefill runs without attention output, and each
 decode step's per-head attention row is reduced to top-$k$ immediately.
 One run produces $\approx 100$--$200$~MB of logs.
 
-\textbf{Hardware.} A single NVIDIA RTX 2080~Ti (11~GB, Turing). This is
-scout-scale by design --- the point of the current paper is
-measurement, not systems-level claims (see \S\ref{sec:limits}).
+\textbf{Hardware.} All measurements in this paper are on a single
+NVIDIA RTX~2080~Ti (11~GB, Turing) --- scout-scale by design, since the
+current paper's claims are measurements and simulations, not
+systems-level performance (see \S\ref{sec:limits}). The follow-up
+(\S\ref{sec:limits}) runs on an NVIDIA A30 (24~GB, Ampere, PCIe Gen4).
 
 \section{Do Heads Shift During Decoding?}
 \label{sec:churn}

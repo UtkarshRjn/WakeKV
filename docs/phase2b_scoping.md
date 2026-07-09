@@ -130,24 +130,38 @@ where frozen should do fine (we should show reactive doesn't regress).
 
 ---
 
-## 6. Hardware ask
+## 6. Hardware (confirmed 2026-07-09)
 
-**Need:** ≥24 GB CUDA card, PCIe Gen4 preferred (not Gen3), ≥64 GB host RAM
-pinned. FlexiCache's own paper ran on H100 + PCIe 5.0 + 180 GB pinned; we
-don't need that headroom.
+**Machine:** `wolverine` (personal access), NVIDIA **A30 24 GB** HBM2,
+PCIe Gen4 x16 (~32 GB/s effective peak). Ampere generation → bf16 works
+natively.
 
-**DSMLP `-v` types to check** (the answer from user question 2):
-- A5000 (24 GB) — fine for 7–8B in fp16 with a reasonable reservoir.
-- A10 (24 GB) — same class.
-- A100 40/80 GB — ideal but probably queued.
+**Implications vs FlexiCache's own H100/PCIe-5.0 setup:**
+- **~2× slower decode** per token (HBM2 ~933 GB/s vs HBM3 ~2 TB/s) —
+  experiments take longer but the reactive-vs-frozen *ratio* (the paper's
+  actual claim) is hardware-independent.
+- **~2× narrower PCIe** than their bench — makes the reactive stall cost
+  *harsher* in our setup, which is if anything a stronger test.
+- **8B ceiling.** R1-Distill-8B fp16 is ~16 GB; leaves ~8 GB for KV +
+  reservoir metadata. 70B is not on the table.
+- **Absolute-throughput numbers won't match FlexiCache's paper.** M2b-0's
+  success bar is that their code *runs* and produces their *quality*
+  numbers (LongBench avg within ±0.5); their throughput is expected to
+  scale down.
 
-**First thing on the new pod:** `nvidia-smi topo -m` + a memcpy microbenchmark
-to measure actual PCIe bandwidth. FlexiCache reports 21 GB/s on H100 Gen4;
-DSMLP's cards may be Gen3 (~10–13 GB/s effective). Update the transfer-bar
-math in `wakekv/signals.py` with the measured number.
+**First thing on the machine, before any FlexiCache work:**
+```
+nvidia-smi --query-gpu=pcie.link.gen.current,pcie.link.width.current --format=csv
+# expect: 4, 16
+```
+Then a memcpy microbenchmark (`cudaMemcpyAsync` back-to-back at
+typical page sizes) to measure *actual* achieved PCIe bandwidth. Update
+the transfer-bar defaults in `wakekv/signals.py:transfer_steps_needed`
+with the measured number so all Phase 2b analyses use the real bar.
 
-**Fallback if no ≥24 GB card is available:** UCSD Research Cluster (Blink
-process, ~few days), then cloud rental as last resort.
+**Confirm before starting Phase 2b:** the box is yours for the full
+~3-week Phase-2b window. Losing the GPU mid-benchmark forces re-runs
+on different hardware and complicates the paper's hardware story.
 
 ---
 
