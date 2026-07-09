@@ -157,9 +157,14 @@ typical page sizes) to measure *actual* achieved PCIe bandwidth. Update
 the transfer-bar defaults in `wakekv/signals.py:transfer_steps_needed`
 with the measured number so all Phase 2b analyses use the real bar.
 
-**Confirm before starting Phase 2b:** the box is yours for the full
-~3-week Phase-2b window. Losing the GPU mid-benchmark forces re-runs
-on different hardware and complicates the paper's hardware story.
+**Access window confirmed 2026-07-09:** the box is the researcher's for
+the full Phase 2b + Phase 3 window (uninterrupted). Absolute-throughput
+numbers can therefore be reported honestly against a single hardware
+baseline for the whole paper.
+
+**Model ceiling:** 8B in fp16 (~16 GB weights + ~8 GB for KV/reservoir/
+activations). No 14B/70B — this is a real limitation to name in §Limits
+of the paper. Batch 1 throughout (already a scoped non-goal in §7).
 
 ---
 
