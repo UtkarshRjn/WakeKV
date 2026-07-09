@@ -85,6 +85,13 @@ def main() -> None:
                     help="+-steps around a trigger step counted as covered")
     ap.add_argument("--null-trials", type=int, default=200)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--no-auto-shrink", action="store_true",
+                    help="keep --top-frac even where it saturates the concentration "
+                         "metric (boundary slots k >= a run's event count); by default "
+                         "top-frac is shrunk until k < events on every run")
+    ap.add_argument("--shrink-margin", type=float, default=0.8,
+                    help="keep k below this fraction of the tightest run's event count "
+                         "when auto-shrinking (smaller = more headroom)")
     args = ap.parse_args()
 
     task_dir = Path(args.task_dir)
@@ -93,10 +100,10 @@ def main() -> None:
         sys.exit(f"no runs under {task_dir}")
 
     rng = np.random.default_rng(args.seed)
-    rows, zscores = [], []
-    obs_all, null_all, brecall_all, fano_all = [], [], [], []
-    total_events = 0
 
+    # Pass 1: extract per-head wake events and the per-step histogram per run.
+    runs: list[tuple[str, int, list[list[int]], np.ndarray, int]] = []
+    total_events = 0
     for rd in run_dirs:
         data = np.load(rd / "log.npz")
         if "needle_score" not in data:
@@ -111,10 +118,40 @@ def main() -> None:
         if n_ev == 0:
             continue
         total_events += n_ev
+        runs.append((rd.name, S, events_by_head, counts, n_ev))
 
-        obs = concentration(counts, args.top_frac)
+    if not runs:
+        sys.exit("no wake-up events found in any run")
+
+    # Choose an effective top_frac with discriminating power. Concentration
+    # saturates at 1.0 for the observed AND null histograms whenever the number
+    # of boundary-step slots k = round(S*top_frac) >= a run's event count: every
+    # event fits in the busiest slots even under uniform scatter, so the metric
+    # can't separate real clustering from chance (z -> nan). Shrink top_frac
+    # until k stays below every run's event count (with margin), unless the user
+    # opted out.
+    top_frac = args.top_frac
+    # tf must satisfy round(S*tf) < n_ev, i.e. tf < (n_ev - 0.5)/S, per run.
+    cap = min((n_ev - 0.5) / S for _, S, _, _, n_ev in runs)
+    safe = max(1e-4, cap * args.shrink_margin)
+    if not args.no_auto_shrink and safe < top_frac:
+        print(f"[warn] top_frac={args.top_frac:g} saturates the concentration metric "
+              f"(boundary slots k >= events) on >=1 run; auto-shrinking to "
+              f"{safe:.4f}. Pass --no-auto-shrink to override.", file=sys.stderr)
+        top_frac = safe
+
+    # Pass 2: concentration, null, and boundary-recall at the effective top_frac.
+    rows, zscores = [], []
+    obs_all, null_all, brecall_all, fano_all = [], [], [], []
+    for name, S, events_by_head, counts, n_ev in runs:
+        k = max(1, int(round(S * top_frac)))
+        if k >= n_ev:
+            print(f"[warn] {name}: {n_ev} events but k={k} boundary slots — "
+                  f"concentration is degenerate here (lower --top-frac).",
+                  file=sys.stderr)
+        obs = concentration(counts, top_frac)
         fano = float(counts.var() / counts.mean()) if counts.mean() > 0 else float("nan")
-        brecall = boundary_recall(counts, args.top_frac, args.half_window)
+        brecall = boundary_recall(counts, top_frac, args.half_window)
 
         # Null: scatter each head's events uniformly over [0, S).
         null = np.empty(args.null_trials)
@@ -123,17 +160,14 @@ def main() -> None:
             for ev in events_by_head:
                 for t in rng.integers(0, S, size=len(ev)):
                     nc[t] += 1
-            null[i] = concentration(nc, args.top_frac)
+            null[i] = concentration(nc, top_frac)
         nmu, nsd = float(null.mean()), float(null.std())
         z = (obs - nmu) / nsd if nsd > 1e-9 else float("nan")
 
         obs_all.append(obs); null_all.append(nmu)
         brecall_all.append(brecall); fano_all.append(fano); zscores.append(z)
-        rows.append(f"| {rd.name} | {S} | {n_ev} | {obs:.2f} | {nmu:.2f} | "
+        rows.append(f"| {name} | {S} | {n_ev} | {obs:.2f} | {nmu:.2f} | "
                     f"{z:+.1f} | {fano:.1f} | {int(counts.max())} | {brecall:.2f} |")
-
-    if not rows:
-        sys.exit("no wake-up events found in any run")
 
     mean_obs = float(np.nanmean(obs_all))
     mean_null = float(np.nanmean(null_all))
@@ -147,8 +181,9 @@ def main() -> None:
 
     lines = [f"# Wake-up clustering — {task_dir}", "",
              f"- total wake-up events: {total_events}",
-             f"- top-frac (boundary steps): {args.top_frac}  |  "
-             f"trigger half-window: +-{args.half_window}", "",
+             f"- top-frac (boundary steps): {top_frac:g}"
+             + (f" (auto-shrunk from {args.top_frac:g})" if top_frac < args.top_frac else "")
+             + f"  |  trigger half-window: +-{args.half_window}", "",
              "| run | steps | events | concentration | null | z | Fano | max co-wake | boundary-recall |",
              "|---|---|---|---|---|---|---|---|---|",
              *rows, "",
@@ -165,10 +200,11 @@ def main() -> None:
                 "misses too many): accept the reactive fetch-on-demand design "
                 "(plan risk R2). The G1 negative result stands."),
              "",
-             "Reading: concentration = share of events in the busiest 10% of "
-             "steps (uniform ~= 0.10). z = std devs above the shuffled null. "
-             "Fano > 1 = bursty. boundary-recall = events caught if we fired "
-             "at those busiest steps +- window."]
+             f"Reading: concentration = share of events in the busiest "
+             f"{top_frac:.1%} of steps (uniform ~= {top_frac:.3f}). "
+             "z = std devs above the shuffled null. Fano > 1 = bursty. "
+             "boundary-recall = events caught if we fired at those busiest "
+             "steps +- window."]
 
     (task_dir / "clustering.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
