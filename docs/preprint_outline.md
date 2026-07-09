@@ -1,8 +1,9 @@
-# WakeKV — Preprint Outline (Phase 0–2a snapshot)
+# WakeKV — Paper Outline (Phase 0–2a snapshot)
 
-*What to ship on arXiv **before** starting Phase 2b, so the current findings
-are priority-dated while the real system is being built. This is a scoping
-document; the actual paper draft happens in a separate branch after review.*
+*Companion to `paper/wakekv.tex`. Per user decision 2026-07-09: **do not
+publish on arXiv** — keep the LaTeX draft in-repo as a raw internal
+artifact while Phase 2b is built. Rawness is expected; this outline
+tells you what the draft covers and what still needs a pass.*
 
 **Working title:** *When Do Attention Heads Change Their Minds? A Case for
 Reactive KV-Cache Residency*
