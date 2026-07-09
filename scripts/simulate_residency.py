@@ -79,25 +79,50 @@ def main() -> None:
                 f"{int(mean(k,'peak_resident_pages'))} | "
                 f"{int(mean(k,'fetches'))} | {int(mean(k,'stall_steps'))} |")
 
-    # Verdict: at each budget, does reactive miss less than frozen at <= its memory?
-    wins = 0
+    # Verdict via the miss-vs-memory PARETO frontier, NOT same-budget rows:
+    # frozen keeps its 'unstable' heads fully resident, so at the same budget
+    # label the two policies sit at different memory. The honest comparison
+    # interpolates reactive's miss to each frozen point's MEMORY.
+    react_front = sorted(
+        (mean(("reactive", b), "mean_resident_pages"),
+         mean(("reactive", b), "miss_rate")) for b in args.budgets
+    )
+
+    def interp_miss(mem: float) -> float | None:
+        for (m0, r0), (m1, r1) in zip(react_front, react_front[1:]):
+            if m0 <= mem <= m1:
+                return r0 if m1 == m0 else r0 + (mem - m0) / (m1 - m0) * (r1 - r0)
+        return None
+
+    wins = total = 0
+    detail = []
     for b in args.budgets:
-        r, f = ("reactive", b), ("frozen", b)
-        if mean(r, "miss_rate") <= mean(f, "miss_rate") and \
-           mean(r, "mean_resident_pages") <= mean(f, "mean_resident_pages"):
+        mf = mean(("frozen", b), "mean_resident_pages")
+        rf = mean(("frozen", b), "miss_rate")
+        ri = interp_miss(mf)
+        if ri is None:
+            continue
+        total += 1
+        if ri <= rf + 1e-9:
             wins += 1
-    lines += ["", "## Read",
-              f"Reactive dominates frozen (<= miss AND <= memory) at "
-              f"{wins}/{len(args.budgets)} budgets.",
-              "A clean win at matched memory supports C2 (frozen classification "
-              "leaves quality/efficiency on the table in shifting regimes). If "
-              "frozen wins, the reactive story needs the untested regimes or a "
-              "smarter demotion policy — informative either way.",
+        detail.append(f"  - at ~{mf:.0f} pages: frozen {rf:.3f} vs reactive {ri:.3f}"
+                      f" {'(reactive better)' if ri <= rf else '(frozen better)'}")
+
+    lines += ["", "## Read (matched-memory Pareto)",
+              f"Reactive misses <= frozen at matched memory at "
+              f"**{wins}/{total}** frozen operating points.",
+              *detail, "",
+              "A win here supports C2 (frozen classification leaves quality on "
+              "the table in shifting regimes). NOTE the miss asymmetry: a "
+              "reactive miss is a paid fetch STALL (quality preserved), a frozen "
+              "miss is a quality GAP (page unavailable until rerank). So reactive "
+              "trades memory for stalls, not for accuracy.",
               "",
-              "Caveats: page granularity from logged top-k (not full KV); "
-              "stall COUNT is a proxy for stall TIME (Phase 2b measures real "
-              "PCIe); scout-scale models. This sim ranks policies, it does not "
-              "predict absolute serving throughput."]
+              "Caveats: reactive fetches far more than frozen (see column) — the "
+              "stall COUNT here is a proxy for stall TIME, which only Phase 2b "
+              "measures on real PCIe. Page granularity from logged top-k (not "
+              "full KV); scout-scale models. This sim ranks policies on the "
+              "memory/miss frontier; it does not predict serving throughput."]
 
     (task_dir / "residency.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
