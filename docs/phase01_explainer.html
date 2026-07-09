@@ -17,7 +17,7 @@
 }
 @media (prefers-color-scheme:dark){:root{
   --bg:#15181B; --panel:#1D2226; --ink:#E8E5DD; --muted:#9AA4AA; --line:#2E353B;
-  --accent:#D99C4B; --accent-ink:#EBBd7E; --accent-soft:#3A2D18;
+  --accent:#D99C4B; --accent-ink:#EBBD7E; --accent-soft:#3A2D18;
   --cool:#72B4B7; --cool-soft:#1E3234; --ok:#82BA88; --bad:#D08078;
 }}
 :root[data-theme="dark"]{
@@ -55,14 +55,12 @@ p{max-width:68ch;margin:.65rem 0}
 .card p{font-size:.86rem;color:var(--muted);margin:.3rem 0}
 .card .tag{font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:var(--cool)}
 code,kbd{font-family:var(--mono);font-size:.86em;background:var(--cool-soft);border-radius:4px;padding:.08em .35em}
-.formula{font-family:var(--mono);font-size:.84rem;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.6rem .8rem;overflow-x:auto;white-space:nowrap}
 table{border-collapse:collapse;width:100%;font-size:.88rem}
 th,td{text-align:left;padding:.45rem .6rem;border-bottom:1px solid var(--line)}
 th{font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:500}
 td code{background:none;padding:0;color:var(--cool)}
 .tablewrap{overflow-x:auto}
 button{font-family:var(--sans);font-size:.85rem;background:var(--accent);color:#fff;border:none;border-radius:7px;padding:.42rem .9rem;cursor:pointer}
-:root[data-theme="dark"] button,body button{color:#fff}
 button.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
 button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .ctl{display:flex;flex-wrap:wrap;gap:.9rem 1.4rem;align-items:center;margin:.7rem 0}
@@ -86,169 +84,181 @@ canvas{width:100%;height:170px;display:block}
 .verdict.warn{border-color:var(--bad)}
 .gates{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.8rem}
 .foot{margin-top:3.5rem;border-top:1px solid var(--line);padding-top:1rem;font-size:.8rem;color:var(--muted)}
+.recap{background:var(--cool-soft);border:none;border-radius:10px;padding:1rem 1.2rem;font-size:.92rem}
+.recap b{color:var(--cool)}
 a{color:var(--cool)}
 </style>
 
 <div class="wrap">
 <header>
-  <div class="eyebrow">WakeKV · research notes · phases 0–1</div>
-  <h1>What these experiments actually do</h1>
-  <p class="lede">Before building a system that moves attention heads' cache between GPU and CPU, we have to answer two cheap questions: <strong>do heads really change importance mid-generation</strong> (gate G0), and <strong>can we see a change coming early enough to prefetch</strong> (gate G1)? Everything you ran on DSMLP serves one of those two questions.</p>
-  <div class="pipe" role="img" aria-label="Pipeline: run_phase0.py produces log.npz, analyzed by analyze_phase0.py for gate G0, then analyze_phase1.py for gate G1">
-    <span class="node">run_phase0.py</span><span class="arr">→</span>
-    <span class="node">log.npz</span><span class="arr">→</span>
-    <span class="node hot">analyze_phase0.py · G0</span><span class="arr">→</span>
-    <span class="node hot">analyze_phase1.py · G1</span>
+  <div class="eyebrow">WakeKV · your research, explained simply</div>
+  <h1>What did we just run on the GPU?</h1>
+  <p class="lede">Two cheap experiments that decide whether your research idea deserves months of work. In plain words: <strong>do the model's "workers" change their habits in the middle of a job?</strong> And if they do — <strong>can we see it coming a moment before it happens?</strong></p>
+  <div class="pipe" role="img" aria-label="Pipeline: run the model and take notes, then score the notes for gate G0, then test the alarms for gate G1">
+    <span class="node">run the model, take notes</span><span class="arr">→</span>
+    <span class="node hot">score the notes (G0)</span><span class="arr">→</span>
+    <span class="node hot">test the alarms (G1)</span>
   </div>
 </header>
 
 <section>
-  <div class="eyebrow">1 · one instrumented run</div>
-  <h2>Watching every head, one token at a time</h2>
-  <p>A normal generation loop throws attention away the instant it's used. <code>run_phase0.py</code> runs the same greedy loop but pauses at every decode step to note, for each of the model's heads (36 layers × 16 heads = 576 in Qwen2.5-3B): <strong>which positions it looked at</strong> (top-64), and <strong>how much of its attention landed on the needle</strong> — the fact we planted. A head "activates" when its strongest look lands inside the needle <em>and</em> the token it copied is the token the model actually emitted.</p>
-  <p>Press play: amber cells are heads currently retrieving from the needle. Notice most heads sleep most of the time, a couple work constantly, and some <em>wake up late</em> — that last group is the entire reason WakeKV can exist.</p>
+  <div class="recap">
+    <b>The story so far.</b> A language model is like an office building: every floor (layer) has workers (attention heads), and each worker keeps one folder per word the model has read (the KV cache). Folders eat GPU memory, so researchers throw folders away — but everyone decides <em>whose</em> folders to throw based on how busy each worker looked <em>at the start</em>. Your idea: watch workers <em>during</em> the job, send a quiet worker's folders to the basement (CPU memory) instead of the shredder, and bring them back the moment that worker gets busy again. For that to work, two things must be true — and that's what these experiments test.
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">1 · the experiment itself</div>
+  <h2>We watch every worker, one word at a time</h2>
+  <p>Normally the model writes its answer and nobody looks inside. Our script (<code>run_phase0.py</code>) makes it write <strong>one word at a time, and after every single word it takes a snapshot</strong>: which folders did each of the 576 workers open just now? And how much attention did each worker give to the one fact we secretly planted in the text?</p>
+  <p>Press play. Each square is a worker; amber means "busy reading the planted fact right now". Watch three things: most workers doze the whole time, a couple work non-stop, and a few <strong>suddenly get busy halfway through</strong> — those late wakers are the reason your idea can exist.</p>
   <div class="panel">
     <div class="ctl">
       <button id="w1play">▶ play</button>
-      <button id="w1step" class="ghost">step</button>
-      <button id="w1reset" class="ghost">reset</button>
+      <button id="w1step" class="ghost">one step</button>
+      <button id="w1reset" class="ghost">restart</button>
       <span class="readout" id="w1status">step 0 / 36</span>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:1.4rem;align-items:flex-start">
-      <div class="grid-heads" id="w1grid" aria-label="simulated grid of attention heads, 6 layers by 8 heads"></div>
+      <div class="grid-heads" id="w1grid" aria-label="a grid of workers, lighting up when busy"></div>
       <div style="flex:1;min-width:220px">
         <div class="tokenstrip" id="w1tokens"></div>
         <div class="logcard" id="w1log"></div>
       </div>
     </div>
   </div>
-  <p style="font-size:.85rem;color:var(--muted)">Memory trick that makes this affordable: the full attention map for a 5,000-token prompt would be gigabytes, so the prompt is prefilled <em>without</em> attention output, and each decode step's map is reduced to top-64 + two scalars immediately. One run logs ~100–200&nbsp;MB.</p>
+  <p style="font-size:.85rem;color:var(--muted)">Why this doesn't blow up the GPU: we never save the full snapshot — the moment it's taken, we keep only each worker's <em>64 favourite folders</em> plus two small numbers, and throw the rest away. One full experiment produces a file of only ~100–200&nbsp;MB.</p>
 </section>
 
 <section>
-  <div class="eyebrow">2 · three tasks, three stresses</div>
-  <h2>Why NIAH, a math problem, and a wifi password</h2>
+  <div class="eyebrow">2 · the three tests</div>
+  <h2>Three jobs, each stressing workers differently</h2>
   <div class="cards">
-    <div class="card"><span class="tag">niah</span>
-      <h3>Needle in a haystack</h3>
-      <p>A UUID hidden in 5,000 tokens of filler; the question comes at the end. The <em>cleanest</em> retrieval signal — but also the most static setting: once found, heads can lock on. If churn shows even here, the premise is strong.</p>
+    <div class="card"><span class="tag">test 1 · niah</span>
+      <h3>Find the hidden code</h3>
+      <p>We bury a secret code inside 5,000 words of boring filler and ask for it at the end. This is the <em>easiest</em> job for workers to stay settled in — so if their habits change even here, they change everywhere.</p>
     </div>
-    <div class="card"><span class="tag">cot</span>
-      <h3>Long chain-of-thought</h3>
-      <p>A reasoning model (R1-Distill-1.5B) thinks for up to 2,048 tokens; the "needle" is the problem statement itself. Measures <em>question-lookback</em>: heads that re-read the problem mid-derivation. The regime where every frozen-role competitor is untested.</p>
+    <div class="card"><span class="tag">test 2 · cot</span>
+      <h3>Solve a math problem</h3>
+      <p>A "thinking" model reasons for up to 2,000 words. We watch which workers keep <em>going back to re-read the question</em> mid-solution. Nobody who published competing methods ever tested this situation — it's your home turf.</p>
     </div>
-    <div class="card"><span class="tag">multiturn</span>
-      <h3>Late recall</h3>
-      <p>Turn 1 states facts; three unrelated turns pass; the last turn asks for the wifi password. Retrieval heads must wake up after a long quiet stretch — the exact event our system needs to detect.</p>
+    <div class="card"><span class="tag">test 3 · multiturn</span>
+      <h3>Remember the wifi password</h3>
+      <p>We tell the model some facts, chat about pasta and hiking for a while, then ask for the wifi password. Workers must <em>wake up after a long nap</em> to find it — the exact event your system wants to catch.</p>
     </div>
   </div>
 </section>
 
 <section>
-  <div class="eyebrow">3 · gate g0 — measuring churn</div>
-  <h2>Four numbers that say "heads move"</h2>
-  <p><code>analyze_phase0.py</code> reduces each run to a handful of statistics. Two compare <em>which heads are active</em> step to step (adjacent-step <strong>Jaccard</strong>; activation <strong>entropy</strong> vs. a static top-20 baseline). Two compare <em>what each head looks at</em> over time (FlexiCache's chance-corrected overlap <strong>RCO</strong>, and HeteroCache-style <strong>drift events</strong> against a resettable baseline). Play with both below — churn is how much of a head's top-k gets replaced each step.</p>
+  <div class="eyebrow">3 · first question (gate g0)</div>
+  <h2>Scoring the notes: do workers really change?</h2>
+  <p>The analysis script boils each experiment down to a few scores. The main one is simple: <strong>compare the busy crew now with the busy crew one word later — how similar are they?</strong> A score of 1.0 means the same workers every time (bad news for us: a fixed plan would be fine). A low score means the crew keeps changing (good news: you need a manager who adapts, which is your paper).</p>
+  <p>There's one trap. A worker's "favourite folders" list can look stable or unstable <em>by pure luck</em>, depending on how many folders exist in total. So we use a luck-corrected score too. Play with both sliders — especially: set the change high and shrink the shelf, and watch the plain score stay flattering while the luck-corrected one calls it out:</p>
   <div class="panel">
     <div class="ctl">
-      <label>churn <input type="range" id="w2churn" min="0" max="100" value="25" aria-label="churn percentage"> <span class="readout" id="w2churnv">25%</span></label>
-      <label>candidate pool <input type="range" id="w2pool" min="24" max="600" value="300" step="12" aria-label="candidate pool size"> <span class="readout" id="w2poolv">300 pages</span></label>
+      <label>how much the worker's list changes <input type="range" id="w2churn" min="0" max="100" value="25" aria-label="how much the list changes"> <span class="readout" id="w2churnv">25%</span></label>
+      <label>total folders on the shelf <input type="range" id="w2pool" min="24" max="600" value="300" step="12" aria-label="total folders available"> <span class="readout" id="w2poolv">300</span></label>
     </div>
-    <div style="font-size:.8rem;color:var(--muted)">step t</div>
+    <div style="font-size:.8rem;color:var(--muted)">what the worker read at word 50</div>
     <div class="chips" id="w2a"></div>
-    <div style="font-size:.8rem;color:var(--muted)">step t+1 <span style="color:var(--accent-ink)">(amber = replaced)</span></div>
+    <div style="font-size:.8rem;color:var(--muted)">what they read at word 51 <span style="color:var(--accent-ink)">(amber = newly picked up)</span></div>
     <div class="chips" id="w2b"></div>
     <div class="stats" style="margin-bottom:0">
-      <div class="stat"><b id="w2j">–</b><span>Jaccard |A∩B| / |A∪B|</span></div>
-      <div class="stat"><b id="w2o">–</b><span>overlap |A∩B| / min(|A|,|B|)</span></div>
-      <div class="stat hot"><b id="w2r">–</b><span>RCO — overlap, minus what luck alone would give in this pool</span></div>
+      <div class="stat"><b id="w2j">–</b><span>plain similarity: how much the two lists agree (1 = identical)</span></div>
+      <div class="stat"><b id="w2o">–</b><span>overlap score: a slightly friendlier version of the same idea</span></div>
+      <div class="stat hot"><b id="w2r">–</b><span>luck-corrected score: agreement <em>beyond</em> what random picking would give</span></div>
     </div>
-    <p style="font-size:.83rem;color:var(--muted);margin-bottom:0">Shrink the pool with churn high: raw overlap barely moves, but RCO falls toward 0 — in a small pool two random sets overlap by luck, and RCO refuses to call that "stability". This correction is what our first shakedown got wrong (and a unit test now pins down).</p>
+    <p style="font-size:.83rem;color:var(--muted);margin-bottom:0">Fun fact: our very first test run got this wrong — the luck correction was miscalculated, and every worker looked perfectly stable. The numbers disagreeing with each other is what exposed the bug.</p>
   </div>
+  <p>And here is what your <strong>real first run</strong> said (one small model, the easy hidden-code test, only 64 words of output):</p>
   <div class="stats">
-    <div class="stat"><b>0.45–0.57</b><span>adjacent-step Jaccard (continuous score) — inside the premise paper's 0.28–0.51 churn range</span></div>
-    <div class="stat"><b>6.4%</b><span>heads chronically unstable (RCO&lt;0.5) — echoes HeteroCache's ~7% "volatile" class</span></div>
-    <div class="stat"><b>63%</b><span>heads with ≥1 drift event in just 64 steps — occasional shifts are the norm, not the exception</span></div>
+    <div class="stat"><b>≈ 0.5</b><span>crew similarity word-to-word — the crew changes about half its members between one word and the next. Same range the original research paper found.</span></div>
+    <div class="stat"><b>6%</b><span>of workers are restless <em>all the time</em> — matches what a rival paper found (~7%) with different methods. Reassuring.</span></div>
+    <div class="stat"><b>63%</b><span>of workers changed their reading habits <em>at least once</em> — occasional change is normal, not rare.</span></div>
   </div>
-  <p style="font-size:.85rem;color:var(--muted)">Your first shakedown run (Qwen2.5-3B, NIAH, 64 steps). The structure — few chronic churners, many occasional shifters — is precisely what a dynamic controller exploits and a frozen classification can't.</p>
+  <p style="font-size:.85rem;color:var(--muted)">That pattern — a few always-restless workers, a majority who shift occasionally — is exactly the world where a fixed plan fails and an adaptive manager (your system) wins.</p>
 </section>
 
 <section>
-  <div class="eyebrow">4 · from churn to events</div>
-  <h2>What counts as a head "waking up"?</h2>
-  <p>Raw scores flicker. If we called every flicker a wake-up, we'd be chasing noise — the same artifact we criticized in the premise paper's binary metric. So <code>wake_events()</code> uses <strong>hysteresis</strong>: a head must stay quiet (below a low bar) for several steps, <em>then</em> jump above a high bar. Tune the thresholds and watch which bumps qualify:</p>
+  <div class="eyebrow">4 · defining the moment that matters</div>
+  <h2>When do we say a worker "woke up"?</h2>
+  <p>Scores jiggle constantly — if every jiggle counted as a wake-up, we'd cry wolf all day. So the rule is stricter: a worker must have been <strong>properly idle for a while</strong>, and then <strong>clearly busy</strong> — only that counts. Drag the sliders and see which bumps qualify. Notice the two skinny spikes: with sensible settings they're ignored, exactly as they should be.</p>
   <div class="panel">
-    <canvas id="w3c" height="170" aria-label="synthetic head score trace with wake events marked"></canvas>
+    <canvas id="w3c" height="170" aria-label="a worker's busyness over time, with wake-ups marked in amber"></canvas>
     <div class="ctl">
-      <label>high bar <input type="range" id="w3hi" min="10" max="50" value="20" aria-label="high threshold times 100"> <span class="readout" id="w3hiv">0.20</span></label>
-      <label>quiet steps required <input type="range" id="w3q" min="0" max="16" value="8" aria-label="minimum quiet steps"> <span class="readout" id="w3qv">8</span></label>
+      <label>how busy counts as "busy" <input type="range" id="w3hi" min="10" max="50" value="20" aria-label="busy threshold"> <span class="readout" id="w3hiv">0.20</span></label>
+      <label>how long they must nap first <input type="range" id="w3q" min="0" max="16" value="8" aria-label="required nap length"> <span class="readout" id="w3qv">8 words</span></label>
       <span class="readout" id="w3n" style="color:var(--accent-ink)"></span>
     </div>
-    <p style="font-size:.83rem;color:var(--muted);margin-bottom:0">Set quiet-steps to 0 and the single-step blips start counting; raise the high bar and real wake-ups vanish. These events become the <em>ground truth</em> that signals are graded against.</p>
+    <p style="font-size:.83rem;color:var(--muted);margin-bottom:0">These confirmed wake-ups become the answer key for the next question: could we have seen each one coming?</p>
   </div>
 </section>
 
 <section>
-  <div class="eyebrow">5 · gate g1 — seeing wake-ups early</div>
-  <h2>Four candidate alarms, one bar to clear</h2>
-  <p><code>analyze_phase1.py</code> replays each logged run and asks, for every wake-up: <em>did signal X cross its threshold in the k steps before?</em> That yields precision (how often an alarm was followed by a real wake-up) and recall (how many wake-ups got warned) at each lead time k.</p>
+  <div class="eyebrow">5 · second question (gate g1)</div>
+  <h2>Can an alarm ring <em>before</em> the wake-up?</h2>
+  <p>Here's why timing matters. In your future system, a napping worker's folders live in the basement. When the worker wakes, the folders must ride the elevator (the PCIe cable between CPU and GPU) back up. <strong>If the alarm rings before the wake-up, the folders arrive in time and nobody waits. If it rings late, the whole model stalls.</strong></p>
+  <p>We test four possible alarms — each one watches something different about a worker:</p>
   <div class="tablewrap"><table>
-    <tr><th>signal</th><th>what it watches</th><th>borrowed from</th></tr>
-    <tr><td><code>online_rco</code></td><td>this head's top-k churning vs. its previous step</td><td>FlexiCache's statistic, used online</td></tr>
-    <tr><td><code>drift</code></td><td>windowed-median overlap vs. a rolling baseline</td><td>HeteroCache's trigger, repurposed</td></tr>
-    <tr><td><code>entropy_trend</code></td><td>this head's attention spreading out (searching?)</td><td>entropy-based allocators</td></tr>
-    <tr><td><code>needle_mass_delta</code></td><td>the score itself rising — an oracle-ish upper bound</td><td>sanity reference</td></tr>
+    <tr><th>alarm</th><th>in plain words</th></tr>
+    <tr><td><code>online_rco</code></td><td>"their reading list is changing faster than usual"</td></tr>
+    <tr><td><code>drift</code></td><td>"they've wandered away from their usual folders"</td></tr>
+    <tr><td><code>entropy_trend</code></td><td>"their eyes are darting around — searching for something?"</td></tr>
+    <tr><td><code>needle_mass_delta</code></td><td>"they're already reaching for the fact" (rings latest — used as a reference)</td></tr>
   </table></div>
-  <p>A signal is useful only if its lead time covers the CPU→GPU fetch. That bar turns out to be startlingly low — compute it for your hardware:</p>
+  <p>Each alarm gets a report card: out of all the real wake-ups, how many did it warn about (and how early)? And when it rang, how often was it a false alarm? Now — how early does the alarm actually <em>need</em> to be? Try the calculator. The answer is the best news in the whole project:</p>
   <div class="panel">
     <div class="ctl">
-      <label>pages to fetch <input type="number" id="w4p" value="64" min="1" max="8192"></label>
-      <label>PCIe GB/s <input type="number" id="w4b" value="21" min="1" max="64" step="0.5"></label>
-      <label>ms per decode step <input type="number" id="w4s" value="30" min="1" max="200"></label>
+      <label>folders to bring up <input type="number" id="w4p" value="64" min="1" max="8192"></label>
+      <label>elevator speed (GB/s) <input type="number" id="w4b" value="21" min="1" max="64" step="0.5"></label>
+      <label>time to write one word (ms) <input type="number" id="w4s" value="30" min="1" max="200"></label>
     </div>
     <div class="stats" style="margin-bottom:.4rem">
-      <div class="stat"><b id="w4kb">–</b><span>data moved (one head's working set)</span></div>
-      <div class="stat"><b id="w4ms">–</b><span>transfer time</span></div>
-      <div class="stat hot"><b id="w4bar">–</b><span>decode steps of lead required</span></div>
+      <div class="stat"><b id="w4kb">–</b><span>stuff to carry</span></div>
+      <div class="stat"><b id="w4ms">–</b><span>elevator ride takes</span></div>
+      <div class="stat hot"><b id="w4bar">–</b><span>words of warning needed</span></div>
     </div>
     <div class="verdict" id="w4v"></div>
     <div class="ctl">
-      <button class="ghost" id="w4one">one head</button>
-      <button class="ghost" id="w4layer">whole layer (16 heads)</button>
-      <button class="ghost" id="w4all">catastrophic: every head</button>
+      <button class="ghost" id="w4one">one worker</button>
+      <button class="ghost" id="w4layer">a whole floor</button>
+      <button class="ghost" id="w4all">everyone at once</button>
     </div>
   </div>
 </section>
 
 <section>
-  <div class="eyebrow">6 · the verdicts</div>
-  <h2>What the gates decide</h2>
+  <div class="eyebrow">6 · why bother with gates</div>
+  <h2>What the two answers decide</h2>
   <div class="gates">
     <div class="card">
-      <span class="tag" style="color:var(--ok)">g0 · premise</span>
-      <h3>Do heads churn on <em>our</em> models?</h3>
-      <p><strong>Pass</strong> → the phenomenon replicates outside the paper; Phase 2 (fork FlexiCache, build the online controller) starts on real footing.</p>
-      <p><strong>Fail</strong> → the idea dies for ~10 GPU-hours instead of 3 months; pivot to the small-model study already shaped in the notes.</p>
+      <span class="tag" style="color:var(--ok)">g0 · do workers change?</span>
+      <h3>If yes</h3>
+      <p>The foundation is solid — we start building the real system (Phase 2) knowing it solves a problem that actually exists.</p>
+      <h3>If no</h3>
+      <p>The idea dies after ~10 GPU-hours instead of after 3 months of building. That's the entire point of doing this first. (Backup plan already written: the small-model study.)</p>
     </div>
     <div class="card">
-      <span class="tag" style="color:var(--ok)">g1 · early warning</span>
-      <h3>Can any signal warn in time?</h3>
-      <p><strong>Pass</strong> → promotions are prefetched; decode never stalls; the paper claims proactive reversibility.</p>
-      <p><strong>Fail</strong> → fallback (plan risk R2): promote reactively and account for the stall honestly — FlexiCache pauses ~1/16 of steps and got into MLSys, so the fallback is survivable.</p>
+      <span class="tag" style="color:var(--ok)">g1 · can we see it coming?</span>
+      <h3>If yes</h3>
+      <p>Folders arrive before they're needed; the model never waits; the paper gets its strongest claim.</p>
+      <h3>If no</h3>
+      <p>Plan B: fetch folders <em>when</em> the worker wakes and honestly measure the short wait. Weaker, but a published competitor lives with the same wait — so the project survives.</p>
     </div>
   </div>
 </section>
 
 <section class="foot">
   <div class="tablewrap"><table>
-    <tr><th>file</th><th>role</th></tr>
-    <tr><td><code>wakekv/instrument.py</code></td><td>the watched decode loop — top-k + needle scores per step</td></tr>
-    <tr><td><code>wakekv/tasks/*.py</code></td><td>builds the three prompts (niah / cot / multiturn)</td></tr>
-    <tr><td><code>wakekv/metrics.py</code></td><td>Jaccard · entropy · RCO · drift (pure numpy, unit-tested)</td></tr>
-    <tr><td><code>wakekv/signals.py</code></td><td>wake events · four alarms · lead-time scoring · transfer bar</td></tr>
-    <tr><td><code>scripts/analyze_phase0.py</code></td><td>G0 report (<code>summary.md</code>, <code>churn.png</code>)</td></tr>
-    <tr><td><code>scripts/analyze_phase1.py</code></td><td>G1 report (<code>signal_study.md</code>)</td></tr>
+    <tr><th>file</th><th>what it is, simply</th></tr>
+    <tr><td><code>wakekv/instrument.py</code></td><td>the camera — snapshots every worker after every word</td></tr>
+    <tr><td><code>wakekv/tasks/*.py</code></td><td>the three test jobs (hidden code · math · wifi password)</td></tr>
+    <tr><td><code>wakekv/metrics.py</code></td><td>the scoring rules ("did the crew change?")</td></tr>
+    <tr><td><code>wakekv/signals.py</code></td><td>the four alarms + the report-card grader</td></tr>
+    <tr><td><code>scripts/analyze_phase0.py</code></td><td>writes the G0 verdict (<code>summary.md</code>)</td></tr>
+    <tr><td><code>scripts/analyze_phase1.py</code></td><td>writes the G1 verdict (<code>signal_study.md</code>)</td></tr>
   </table></div>
-  <p>Repo: <code>UtkarshRjn/dynamic-head-kv</code> (private) · PR #1 = Phase 0, PR #2 = Phase 1 · full plan in <code>RESEARCH_PLAN.md</code>.</p>
+  <p>Private repo: <code>UtkarshRjn/dynamic-head-kv</code> · the full plan lives in <code>RESEARCH_PLAN.md</code>.</p>
 </section>
 </div>
 
@@ -274,12 +284,12 @@ function drawW1(){
   var active=0,example='';
   for(var l=0;l<L;l++)for(var h=0;h<H;h++){
     var v=intensity(l,h,step);var el=cells[l*H+h];
-    if(v>0.35){active++;el.style.background=(v>0.6)?css('--accent'):css('--accent-soft');if(!example&&v>0.6)example='L'+l+'·H'+h}
+    if(v>0.35){active++;el.style.background=(v>0.6)?css('--accent'):css('--accent-soft');if(!example&&v>0.6)example='floor '+l+', desk '+h}
     else el.style.background=css('--cool-soft')}
   q('#w1status').textContent='step '+step+' / '+S;
   var strip='';for(var t=0;t<=step&&t<tokens.length;t++){strip+=(t===step)?'<b>'+tokens[t]+'</b>':tokens[t]}
   q('#w1tokens').innerHTML=strip;
-  q('#w1log').innerHTML='logged this step → <em>'+active+' heads active</em> · top-64 positions per head · needle score per head'+(example?' · e.g. <em>'+example+'</em> copy-paste ✓':'');
+  q('#w1log').innerHTML='snapshot: <em>'+active+' workers busy</em> · each worker&rsquo;s 64 favourite folders saved'+(example?' · busiest: <em>'+example+'</em>':'');
 }
 function advance(){step=(step+1)%(S+1);drawW1();if(step===S&&timer){clearInterval(timer);timer=null;q('#w1play').textContent='▶ play'}}
 q('#w1play').addEventListener('click',function(){
@@ -294,13 +304,13 @@ function drawW2(){
   var churn=+q('#w2churn').value/100, pool=+q('#w2pool').value;
   var replaced=Math.round(churn*K);
   var A=[],B=[];
-  for(var i=0;i<K;i++){A.push('p'+(i*7%pool));B.push(i<K-replaced?'p'+(i*7%pool):'p'+((i*7+pool/2|0)%pool+1))}
+  for(var i=0;i<K;i++){A.push('f'+(i*7%pool));B.push(i<K-replaced?'f'+(i*7%pool):'f'+((i*7+pool/2|0)%pool+1))}
   var setA={};A.forEach(function(x){setA[x]=1});
   var inter=B.filter(function(x){return setA[x]}).length;
   var jac=inter/(2*K-inter), ov=inter/K;
   var chance=K/pool, rco=(pool<=K)?1:Math.max(0,(Math.min(1,inter/K)-chance)/(1-chance));
   q('#w2churnv').textContent=Math.round(churn*100)+'%';
-  q('#w2poolv').textContent=pool+' pages';
+  q('#w2poolv').textContent=pool;
   q('#w2a').innerHTML=A.map(function(x){return '<span class="chip kept">'+x+'</span>'}).join('');
   q('#w2b').innerHTML=B.map(function(x){return '<span class="chip '+(setA[x]?'kept':'new')+'">'+x+'</span>'}).join('');
   q('#w2j').textContent=jac.toFixed(2);
@@ -328,7 +338,7 @@ function drawW3(){
   var c=q('#w3c');var W=c.clientWidth;c.width=W*devicePixelRatio;c.height=170*devicePixelRatio;
   var g=c.getContext('2d');g.scale(devicePixelRatio,devicePixelRatio);
   var hi=+q('#w3hi').value/100,quiet=+q('#w3q').value;
-  q('#w3hiv').textContent=hi.toFixed(2);q('#w3qv').textContent=quiet;
+  q('#w3hiv').textContent=hi.toFixed(2);q('#w3qv').textContent=quiet+' words';
   g.clearRect(0,0,W,170);
   var y=function(v){return 155-v*280},x=function(t){return t/(N-1)*(W-8)+4};
   g.strokeStyle=css('--line');g.setLineDash([4,4]);g.beginPath();g.moveTo(4,y(hi));g.lineTo(W-4,y(hi));g.stroke();
@@ -339,8 +349,8 @@ function drawW3(){
   var ev=events(hi,quiet);
   g.strokeStyle=css('--accent');g.lineWidth=2;
   ev.forEach(function(t){g.beginPath();g.moveTo(x(t),18);g.lineTo(x(t),160);g.stroke()});
-  g.fillStyle=css('--muted');g.font='11px '+css('--mono');g.fillText('high bar '+hi.toFixed(2),8,y(hi)-5);
-  q('#w3n').textContent=ev.length+' wake event'+(ev.length===1?'':'s');
+  g.fillStyle=css('--muted');g.font='11px '+css('--mono');g.fillText('"busy" line '+hi.toFixed(2),8,y(hi)-5);
+  q('#w3n').textContent=ev.length+' wake-up'+(ev.length===1?'':'s')+' counted';
 }
 q('#w3hi').addEventListener('input',drawW3);
 q('#w3q').addEventListener('input',drawW3);
@@ -354,10 +364,10 @@ function drawW4(){
   var bar=ms/s;
   q('#w4kb').textContent=bytes>=1048576?(bytes/1048576).toFixed(1)+' MB':(bytes/1024).toFixed(0)+' KB';
   q('#w4ms').textContent=ms<1?ms.toFixed(3)+' ms':ms.toFixed(1)+' ms';
-  q('#w4bar').textContent=bar<0.01?'<0.01':bar.toFixed(2);
+  q('#w4bar').textContent=bar<0.01?'less than 0.01':bar.toFixed(2);
   var v=q('#w4v');
-  if(bar<1){v.className='verdict';v.textContent='Fetch completes inside one decode step — even a lead-1 alarm hides it entirely. G1’s bar is low at this scale; precision matters more than lead.'}
-  else{v.className='verdict warn';v.textContent='Fetch needs '+Math.ceil(bar)+' steps of warning — a signal must fire that early, or the request stalls (the honest-fallback regime).'}
+  if(bar<1){v.className='verdict';v.textContent='The elevator is faster than writing a single word — so even an alarm that rings at the very last moment is early enough. For one worker, timing is a non-problem; what matters is not crying wolf.'}
+  else{v.className='verdict warn';v.textContent='Now the ride takes '+Math.ceil(bar)+' words of writing — the alarm must ring that early or the model stands waiting. This is why we never move everyone’s folders at once.'}
 }
 ['w4p','w4b','w4s'].forEach(function(id){q('#'+id).addEventListener('input',drawW4)});
 q('#w4one').addEventListener('click',function(){q('#w4p').value=64;drawW4()});
