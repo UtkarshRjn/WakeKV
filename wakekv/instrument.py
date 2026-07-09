@@ -98,7 +98,11 @@ def run_instrumented_generation(
     n_heads = cfg.num_attention_heads
 
     # Prefill everything except the last prompt token, no attention output.
-    out = model(input_ids[:, :-1], use_cache=True)
+    # Call the base model (no LM head) so we don't materialize full-sequence
+    # logits — logits.float() over [seq, vocab] is a multi-GB peak on long
+    # contexts and the prefill logits are unused (only the KV cache is kept).
+    base = getattr(model, "model", model)
+    out = base(input_ids[:, :-1], use_cache=True)
     past = out.past_key_values
     cur = input_ids[:, -1:]
 
@@ -130,11 +134,21 @@ def run_instrumented_generation(
 
         if needle_span is not None:
             s, e = needle_span
-            needle_mass = att[..., s:e].sum(-1)
-            total = att.sum(-1)
-            sink = att[..., : min(sink_tokens, ctx)].sum(-1)
-            local = att[..., max(0, ctx - local_window) :].sum(-1)
-            denom = (total - sink - local).clamp_min(1e-6)
+            # Needle score = needle mass / non-sink, non-local mass
+            # (2602.11162 Eq. 2). The sink/local exclusions must never remove
+            # needle mass itself, or denom collapses when the needle overlaps
+            # the local window — which happens for CoT (needle = the question
+            # at the start) while the context is still short, blowing the ratio
+            # past 1 (to ~1e5). Excluding the needle span from sink/local keeps
+            # the ratio in [0, 1] and is a no-op for NIAH, where the needle is
+            # disjoint from both regions.
+            pos = torch.arange(ctx, device=att.device)
+            needle_m = (pos >= s) & (pos < e)
+            sink_m = (pos < min(sink_tokens, ctx)) & ~needle_m
+            local_m = (pos >= max(0, ctx - local_window)) & ~needle_m
+            needle_mass = att[..., needle_m].sum(-1)
+            denom = (att.sum(-1) - att[..., sink_m].sum(-1)
+                     - att[..., local_m].sum(-1)).clamp_min(1e-6)
             steps_needle.append((needle_mass / denom).cpu().numpy().astype(np.float32))
             argmax_pos = att.argmax(-1)  # [L, H]
             in_needle = (argmax_pos >= s) & (argmax_pos < e)

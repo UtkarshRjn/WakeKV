@@ -43,8 +43,11 @@ def main() -> None:
     ap.add_argument("--seeds", type=int, nargs="+", default=[0], help="niah only")
     ap.add_argument("--limit", type=int, default=5, help="cot: number of problems")
     ap.add_argument("--cot-source", default="auto", help="auto|math500|aime2024|bundled")
-    ap.add_argument("--dtype", default="auto", choices=["auto", "bfloat16", "float16"],
-                    help="auto = bf16 where supported (Ampere+), else fp16 (e.g. 2080Ti)")
+    ap.add_argument("--dtype", default="auto",
+                    choices=["auto", "bfloat16", "float16", "float32"],
+                    help="auto = bf16 where supported (Ampere+), else fp16 (e.g. 2080Ti). "
+                         "Use float32 for bf16-native models (e.g. DeepSeek-R1-Distill) on "
+                         "pre-Ampere GPUs, where fp16 overflows to NaN.")
     args = ap.parse_args()
 
     if args.dtype == "auto":

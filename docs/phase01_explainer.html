@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<title>WakeKV Phase 0–1: what the experiments do</title>
+<style>
+:root{
+  --bg:#F7F5F0; --panel:#FFFFFF; --ink:#232A2E; --muted:#5F6B72; --line:#E3DFD5;
+  --accent:#B4690E; --accent-ink:#8A4F08; --accent-soft:#F4E7D2;
+  --cool:#2E6E73; --cool-soft:#E0ECEB; --ok:#3E7A45; --bad:#A5433C;
+  --serif:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#15181B; --panel:#1D2226; --ink:#E8E5DD; --muted:#9AA4AA; --line:#2E353B;
+  --accent:#D99C4B; --accent-ink:#EBBD7E; --accent-soft:#3A2D18;
+  --cool:#72B4B7; --cool-soft:#1E3234; --ok:#82BA88; --bad:#D08078;
+}}
+:root[data-theme="dark"]{
+  --bg:#15181B; --panel:#1D2226; --ink:#E8E5DD; --muted:#9AA4AA; --line:#2E353B;
+  --accent:#D99C4B; --accent-ink:#EBBD7E; --accent-soft:#3A2D18;
+  --cool:#72B4B7; --cool-soft:#1E3234; --ok:#82BA88; --bad:#D08078;
+}
+:root[data-theme="light"]{
+  --bg:#F7F5F0; --panel:#FFFFFF; --ink:#232A2E; --muted:#5F6B72; --line:#E3DFD5;
+  --accent:#B4690E; --accent-ink:#8A4F08; --accent-soft:#F4E7D2;
+  --cool:#2E6E73; --cool-soft:#E0ECEB; --ok:#3E7A45; --bad:#A5433C;
+}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.65;margin:0}
+.wrap{max-width:760px;margin:0 auto;padding:3rem 1.25rem 5rem}
+h1,h2{font-family:var(--serif);font-weight:500;text-wrap:balance;line-height:1.2}
+h1{font-size:2.1rem;margin:.2rem 0 .6rem}
+h2{font-size:1.45rem;margin:0 0 .7rem}
+.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink)}
+.lede{font-size:1.06rem;color:var(--muted);max-width:62ch}
+section{margin-top:3.2rem}
+p{max-width:68ch;margin:.65rem 0}
+.pipe{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin:1.6rem 0 0;font-family:var(--mono);font-size:.78rem}
+.pipe span.node{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:.3rem .55rem}
+.pipe span.node.hot{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
+.pipe span.arr{color:var(--muted)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:1.1rem 1.2rem;margin:1.1rem 0}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.8rem;margin:1.1rem 0}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.85rem 1rem}
+.stat b{display:block;font-size:1.5rem;font-family:var(--serif);font-weight:500;font-variant-numeric:tabular-nums}
+.stat span{font-size:.8rem;color:var(--muted)}
+.stat.hot{border-color:var(--accent)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.8rem;margin:1.1rem 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.9rem 1rem}
+.card h3{margin:.1rem 0 .4rem;font-size:.98rem;font-family:var(--serif);font-weight:600}
+.card p{font-size:.86rem;color:var(--muted);margin:.3rem 0}
+.card .tag{font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:var(--cool)}
+code,kbd{font-family:var(--mono);font-size:.86em;background:var(--cool-soft);border-radius:4px;padding:.08em .35em}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{text-align:left;padding:.45rem .6rem;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:500}
+td code{background:none;padding:0;color:var(--cool)}
+.tablewrap{overflow-x:auto}
+button{font-family:var(--sans);font-size:.85rem;background:var(--accent);color:#fff;border:none;border-radius:7px;padding:.42rem .9rem;cursor:pointer}
+button.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ctl{display:flex;flex-wrap:wrap;gap:.9rem 1.4rem;align-items:center;margin:.7rem 0}
+.ctl label{font-size:.8rem;color:var(--muted);display:flex;align-items:center;gap:.5rem}
+.ctl input[type=range]{accent-color:var(--accent)}
+.ctl input[type=number]{width:5.5rem;font-family:var(--mono);font-size:.85rem;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:.3rem .45rem}
+.readout{font-family:var(--mono);font-size:.85rem;font-variant-numeric:tabular-nums}
+.grid-heads{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;max-width:340px}
+.grid-heads div{aspect-ratio:1;border-radius:4px;background:var(--cool-soft);transition:background .15s}
+@media (prefers-reduced-motion:reduce){.grid-heads div{transition:none}}
+.tokenstrip{font-family:var(--mono);font-size:.78rem;overflow-x:auto;white-space:nowrap;padding:.45rem 0;color:var(--muted)}
+.tokenstrip b{color:var(--accent-ink);background:var(--accent-soft);border-radius:3px;padding:0 .15em}
+.logcard{font-family:var(--mono);font-size:.78rem;border-top:1px dashed var(--line);margin-top:.7rem;padding-top:.6rem;color:var(--muted)}
+.logcard em{color:var(--ink);font-style:normal}
+.chips{display:flex;flex-wrap:wrap;gap:.3rem;margin:.35rem 0}
+.chip{font-family:var(--mono);font-size:.74rem;border:1px solid var(--line);border-radius:5px;padding:.12rem .4rem;background:var(--bg)}
+.chip.kept{border-color:var(--cool);color:var(--cool)}
+.chip.new{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
+canvas{width:100%;height:170px;display:block}
+.verdict{border-left:3px solid var(--ok);padding:.15rem 0 .15rem .8rem;font-size:.92rem;margin:.8rem 0}
+.verdict.warn{border-color:var(--bad)}
+.gates{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.8rem}
+.foot{margin-top:3.5rem;border-top:1px solid var(--line);padding-top:1rem;font-size:.8rem;color:var(--muted)}
+.recap{background:var(--cool-soft);border:none;border-radius:10px;padding:1rem 1.2rem;font-size:.92rem}
+.recap b{color:var(--cool)}
+a{color:var(--cool)}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">WakeKV · your research, explained simply</div>
+  <h1>What did we just run on the GPU?</h1>
+  <p class="lede">Two cheap experiments that decide whether your research idea deserves months of work. In plain words: <strong>do the model's "workers" change their habits in the middle of a job?</strong> And if they do — <strong>can we see it coming a moment before it happens?</strong> The results are in: <span style="color:var(--ok)">yes to the first</span>, <span style="color:var(--bad)">no (cheaply) to the second</span> — jump to <a href="#verdict">the verdict</a> for what that means.</p>
+  <div class="pipe" role="img" aria-label="Pipeline: run the model and take notes, then score the notes for gate G0, then test the alarms for gate G1">
+    <span class="node">run the model, take notes</span><span class="arr">→</span>
+    <span class="node hot">score the notes (G0)</span><span class="arr">→</span>
+    <span class="node hot">test the alarms (G1)</span>
+  </div>
+</header>
+
+<section>
+  <div class="recap">
+    <b>The story so far.</b> A language model is like an office building: every floor (layer) has workers (attention heads), and each worker keeps one folder per word the model has read (the KV cache). Folders eat GPU memory, so researchers throw folders away — but everyone decides <em>whose</em> folders to throw based on how busy each worker looked <em>at the start</em>. Your idea: watch workers <em>during</em> the job, send a quiet worker's folders to the basement (CPU memory) instead of the shredder, and bring them back the moment that worker gets busy again. For that to work, two things must be true — and that's what these experiments test.
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">1 · the experiment itself</div>
+  <h2>We watch every worker, one word at a time</h2>
+  <p>Normally the model writes its answer and nobody looks inside. Our script (<code>run_phase0.py</code>) makes it write <strong>one word at a time, and after every single word it takes a snapshot</strong>: which folders did each of the 576 workers open just now? And how much attention did each worker give to the one fact we secretly planted in the text?</p>
+  <p>Press play. Each square is a worker; amber means "busy reading the planted fact right now". Watch three things: most workers doze the whole time, a couple work non-stop, and a few <strong>suddenly get busy halfway through</strong> — those late wakers are the reason your idea can exist.</p>
+  <div class="panel">
+    <div class="ctl">
+      <button id="w1play">▶ play</button>
+      <button id="w1step" class="ghost">one step</button>
+      <button id="w1reset" class="ghost">restart</button>
+      <span class="readout" id="w1status">step 0 / 36</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:1.4rem;align-items:flex-start">
+      <div class="grid-heads" id="w1grid" aria-label="a grid of workers, lighting up when busy"></div>
+      <div style="flex:1;min-width:220px">
+        <div class="tokenstrip" id="w1tokens"></div>
+        <div class="logcard" id="w1log"></div>
+      </div>
+    </div>
+  </div>
+  <p style="font-size:.85rem;color:var(--muted)">Why this doesn't blow up the GPU: we never save the full snapshot — the moment it's taken, we keep only each worker's <em>64 favourite folders</em> plus two small numbers, and throw the rest away. One full experiment produces a file of only ~100–200&nbsp;MB.</p>
+</section>
+
+<section>
+  <div class="eyebrow">2 · the three tests</div>
+  <h2>Three jobs, each stressing workers differently</h2>
+  <div class="cards">
+    <div class="card"><span class="tag">test 1 · niah</span>
+      <h3>Find the hidden code</h3>
+      <p>We bury a secret code inside 5,000 words of boring filler and ask for it at the end. This is the <em>easiest</em> job for workers to stay settled in — so if their habits change even here, they change everywhere.</p>
+    </div>
+    <div class="card"><span class="tag">test 2 · cot</span>
+      <h3>Solve a math problem</h3>
+      <p>A "thinking" model reasons for up to 2,000 words. We watch which workers keep <em>going back to re-read the question</em> mid-solution. Nobody who published competing methods ever tested this situation — it's your home turf.</p>
+    </div>
+    <div class="card"><span class="tag">test 3 · multiturn</span>
+      <h3>Remember the wifi password</h3>
+      <p>We tell the model some facts, chat about pasta and hiking for a while, then ask for the wifi password. Workers must <em>wake up after a long nap</em> to find it — the exact event your system wants to catch.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">3 · first question (gate g0)</div>
+  <h2>Scoring the notes: do workers really change?</h2>
+  <p>The analysis script boils each experiment down to a few scores. The main one is simple: <strong>compare the busy crew now with the busy crew one word later — how similar are they?</strong> A score of 1.0 means the same workers every time (bad news for us: a fixed plan would be fine). A low score means the crew keeps changing (good news: you need a manager who adapts, which is your paper).</p>
+  <p>There's one trap. A worker's "favourite folders" list can look stable or unstable <em>by pure luck</em>, depending on how many folders exist in total. So we use a luck-corrected score too. Play with both sliders — especially: set the change high and shrink the shelf, and watch the plain score stay flattering while the luck-corrected one calls it out:</p>
+  <div class="panel">
+    <div class="ctl">
+      <label>how much the worker's list changes <input type="range" id="w2churn" min="0" max="100" value="25" aria-label="how much the list changes"> <span class="readout" id="w2churnv">25%</span></label>
+      <label>total folders on the shelf <input type="range" id="w2pool" min="24" max="600" value="300" step="12" aria-label="total folders available"> <span class="readout" id="w2poolv">300</span></label>
+    </div>
+    <div style="font-size:.8rem;color:var(--muted)">what the worker read at word 50</div>
+    <div class="chips" id="w2a"></div>
+    <div style="font-size:.8rem;color:var(--muted)">what they read at word 51 <span style="color:var(--accent-ink)">(amber = newly picked up)</span></div>
+    <div class="chips" id="w2b"></div>
+    <div class="stats" style="margin-bottom:0">
+      <div class="stat"><b id="w2j">–</b><span>plain similarity: how much the two lists agree (1 = identical)</span></div>
+      <div class="stat"><b id="w2o">–</b><span>overlap score: a slightly friendlier version of the same idea</span></div>
+      <div class="stat hot"><b id="w2r">–</b><span>luck-corrected score: agreement <em>beyond</em> what random picking would give</span></div>
+    </div>
+    <p style="font-size:.83rem;color:var(--muted);margin-bottom:0">Fun fact: our very first test run got this wrong — the luck correction was miscalculated, and every worker looked perfectly stable. The numbers disagreeing with each other is what exposed the bug.</p>
+  </div>
+  <p>And here is what your <strong>real first run</strong> said (one small model, the easy hidden-code test, only 64 words of output):</p>
+  <div class="stats">
+    <div class="stat"><b>≈ 0.5</b><span>crew similarity word-to-word — the crew changes about half its members between one word and the next. Same range the original research paper found.</span></div>
+    <div class="stat"><b>6%</b><span>of workers are restless <em>all the time</em> — matches what a rival paper found (~7%) with different methods. Reassuring.</span></div>
+    <div class="stat"><b>63%</b><span>of workers changed their reading habits <em>at least once</em> — occasional change is normal, not rare.</span></div>
+  </div>
+  <p style="font-size:.85rem;color:var(--muted)">That pattern — a few always-restless workers, a majority who shift occasionally — is exactly the world where a fixed plan fails and an adaptive manager (your system) wins.</p>
+</section>
+
+<section>
+  <div class="eyebrow">4 · defining the moment that matters</div>
+  <h2>When do we say a worker "woke up"?</h2>
+  <p>Scores jiggle constantly — if every jiggle counted as a wake-up, we'd cry wolf all day. So the rule is stricter: a worker must have been <strong>properly idle for a while</strong>, and then <strong>clearly busy</strong> — only that counts. Drag the sliders and see which bumps qualify. Notice the two skinny spikes: with sensible settings they're ignored, exactly as they should be.</p>
+  <div class="panel">
+    <canvas id="w3c" height="170" aria-label="a worker's busyness over time, with wake-ups marked in amber"></canvas>
+    <div class="ctl">
+      <label>how busy counts as "busy" <input type="range" id="w3hi" min="10" max="50" value="20" aria-label="busy threshold"> <span class="readout" id="w3hiv">0.20</span></label>
+      <label>how long they must nap first <input type="range" id="w3q" min="0" max="16" value="8" aria-label="required nap length"> <span class="readout" id="w3qv">8 words</span></label>
+      <span class="readout" id="w3n" style="color:var(--accent-ink)"></span>
+    </div>
+    <p style="font-size:.83rem;color:var(--muted);margin-bottom:0">These confirmed wake-ups become the answer key for the next question: could we have seen each one coming?</p>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">5 · second question (gate g1)</div>
+  <h2>Can an alarm ring <em>before</em> the wake-up?</h2>
+  <p>Here's why timing matters. In your future system, a napping worker's folders live in the basement. When the worker wakes, the folders must ride the elevator (the PCIe cable between CPU and GPU) back up. <strong>If the alarm rings before the wake-up, the folders arrive in time and nobody waits. If it rings late, the whole model stalls.</strong></p>
+  <p>We test four possible alarms — each one watches something different about a worker:</p>
+  <div class="tablewrap"><table>
+    <tr><th>alarm</th><th>in plain words</th></tr>
+    <tr><td><code>online_rco</code></td><td>"their reading list is changing faster than usual"</td></tr>
+    <tr><td><code>drift</code></td><td>"they've wandered away from their usual folders"</td></tr>
+    <tr><td><code>entropy_trend</code></td><td>"their eyes are darting around — searching for something?"</td></tr>
+    <tr><td><code>needle_mass_delta</code></td><td>"they're already reaching for the fact" (rings latest — used as a reference)</td></tr>
+  </table></div>
+  <p>Each alarm gets a report card: out of all the real wake-ups, how many did it warn about (and how early)? And when it rang, how often was it a false alarm? First, how early does the alarm actually <em>need</em> to be? Try the calculator — the bar turns out to be tiny, which is what makes the next section surprising:</p>
+  <div class="panel">
+    <div class="ctl">
+      <label>folders to bring up <input type="number" id="w4p" value="64" min="1" max="8192"></label>
+      <label>elevator speed (GB/s) <input type="number" id="w4b" value="21" min="1" max="64" step="0.5"></label>
+      <label>time to write one word (ms) <input type="number" id="w4s" value="30" min="1" max="200"></label>
+    </div>
+    <div class="stats" style="margin-bottom:.4rem">
+      <div class="stat"><b id="w4kb">–</b><span>stuff to carry</span></div>
+      <div class="stat"><b id="w4ms">–</b><span>elevator ride takes</span></div>
+      <div class="stat hot"><b id="w4bar">–</b><span>words of warning needed</span></div>
+    </div>
+    <div class="verdict" id="w4v"></div>
+    <div class="ctl">
+      <button class="ghost" id="w4one">one worker</button>
+      <button class="ghost" id="w4layer">a whole floor</button>
+      <button class="ghost" id="w4all">everyone at once</button>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">5b · the honesty test — and what broke</div>
+  <h2>The same alarm can look perfect or useless</h2>
+  <p>This is the twist, and the most important lesson so far. The winning alarm (<code>drift</code>) first looked <strong>flawless</strong> — it caught every wake-up with no false alarms. Then we checked whether a <em>real</em> system could actually achieve that, and it fell apart. Same alarm, same data — the only thing that changed was how honestly we graded it. Click through the three ways:</p>
+  <div class="panel">
+    <div class="ctl">
+      <button id="w5a">1 · let each worker cheat</button>
+      <button id="w5b" class="ghost">2 · one rule for all</button>
+      <button id="w5c" class="ghost">3 · the fair rule</button>
+    </div>
+    <p id="w5desc" style="min-height:2.8em;margin:.2rem 0 .8rem"></p>
+    <div class="stats" style="margin-bottom:.3rem">
+      <div class="stat"><b id="w5p">–</b><span>precision — when the alarm rings, how often it's real</span></div>
+      <div class="stat"><b id="w5r">–</b><span>recall — of the real wake-ups, how many it caught</span></div>
+      <div class="stat hot"><b id="w5v">–</b><span>verdict</span></div>
+    </div>
+    <p id="w5note" style="font-size:.83rem;color:var(--muted);margin-bottom:0"></p>
+  </div>
+  <p>The catch in grade&nbsp;1: we let every worker tune their own alarm sensitivity <em>after already knowing which moments were real wake-ups</em>. No live system can peek at the answers like that. Grade&nbsp;3 is what a real controller gets — judge each worker against their own normal, decide on the spot — and there, on the hard reasoning task, the best alarm catches only <strong>~4 in 10</strong> wake-ups while crying wolf <strong>~12 times</strong> for each real one.</p>
+  <div class="recap" style="background:var(--panel);border:1px solid var(--bad)">
+    <b style="color:var(--bad)">The finding:</b> cheap alarms can't reliably see wake-ups coming. That's not a tuning problem — every alarm we tried lands in the same place. For our system this hurts twice: the misses become stalls, and the false alarms drag workers' folders up to the GPU when they weren't needed — which quietly undoes the memory saving we wanted in the first place.
+  </div>
+</section>
+
+<section id="verdict">
+  <div class="eyebrow">6 · where we actually landed</div>
+  <h2>The verdict, honestly</h2>
+  <div class="gates">
+    <div class="card" style="border-color:var(--ok)">
+      <span class="tag" style="color:var(--ok)">g0 · do workers change? — <b>YES</b></span>
+      <p>Confirmed on our own models, across all three jobs. On the reasoning task, <strong>85% of workers</strong> shifted their reading habits at least once. The problem the project attacks is real. This gate <strong>passes</strong>.</p>
+    </div>
+    <div class="card" style="border-color:var(--bad)">
+      <span class="tag" style="color:var(--bad)">g1 · see it coming? — <b>NO (cheaply)</b></span>
+      <p>No cheap alarm predicts wake-ups well enough to prefetch ahead of time. This gate <strong>does not pass</strong> in its strong form — an honest, publishable negative result, not a dead end.</p>
+    </div>
+  </div>
+  <h2 style="margin-top:2rem">So what now — the fork</h2>
+  <div class="cards">
+    <div class="card">
+      <span class="tag">plan b · react</span>
+      <h3>Fetch on demand, measure the wait</h3>
+      <p>Drop the guessing. When a worker actually reaches for basement folders, fetch them then and honestly report the short stall. Fully supported by the data we have, and a published competitor (FlexiCache) lives with the same stall. Safe, solid, a bit less ambitious.</p>
+    </div>
+    <div class="card" style="border-color:var(--accent)">
+      <span class="tag" style="color:var(--accent-ink)">worth one cheap check · cluster</span>
+      <h3>Do wake-ups arrive in bunches?</h3>
+      <p>Per-worker guessing failed. But if many workers wake <em>together</em> at reasoning turning-points, one coarse "a shift is happening" trigger could catch them cheaply — a better story than any single alarm. A ~20-minute check on data we already have decides it.</p>
+    </div>
+  </div>
+  <p style="font-size:.9rem">Either way, the heart of the idea survives: <strong>nobody else moves a worker's folders to the basement and back, live, during the job.</strong> The prediction stumble just decides whether that happens by guessing ahead (if wake-ups cluster) or by reacting fast (if they don't).</p>
+</section>
+
+<section class="foot">
+  <div class="tablewrap"><table>
+    <tr><th>file</th><th>what it is, simply</th></tr>
+    <tr><td><code>wakekv/instrument.py</code></td><td>the camera — snapshots every worker after every word</td></tr>
+    <tr><td><code>wakekv/tasks/*.py</code></td><td>the three test jobs (hidden code · math · wifi password)</td></tr>
+    <tr><td><code>wakekv/metrics.py</code></td><td>the scoring rules ("did the crew change?")</td></tr>
+    <tr><td><code>wakekv/signals.py</code></td><td>the four alarms + the report-card grader</td></tr>
+    <tr><td><code>scripts/analyze_phase0.py</code></td><td>writes the G0 verdict (<code>summary.md</code>)</td></tr>
+    <tr><td><code>scripts/analyze_phase1.py</code></td><td>writes the G1 verdict (<code>signal_study.md</code>)</td></tr>
+  </table></div>
+  <p>Private repo: <code>UtkarshRjn/dynamic-head-kv</code> · the full plan lives in <code>RESEARCH_PLAN.md</code>.</p>
+</section>
+</div>
+
+<script>
+(function(){
+function q(s){return document.querySelector(s)}
+function rng(seed){var t=seed>>>0;return function(){t+=0x6D2B79F5;var r=Math.imul(t^t>>>15,1|t);r=r+Math.imul(r^r>>>7,61|r)^r;return((r^r>>>14)>>>0)/4294967296}}
+var css=function(name){return getComputedStyle(document.documentElement).getPropertyValue(name).trim()}
+
+var L=6,H=8,S=36;
+var stars=[[1,2],[4,5]];
+var wakers=[{l:2,h:6,from:14,to:24},{l:5,h:1,from:26,to:34},{l:0,h:4,from:8,to:12}];
+var tokens=["First",","," locate"," the"," identifier","."," Scanning"," the"," notes","…"," day"," 41"," mentions"," nothing",".","<think>"," the"," question"," asks"," for"," entry-517","</think>"," The"," special"," magic"," identifier"," is"," 3f9c","-","a2","…"," done",".","<eos>","",""];
+var grid=q('#w1grid');var cells=[];
+for(var i=0;i<L*H;i++){var d=document.createElement('div');grid.appendChild(d);cells.push(d)}
+var step=0,timer=null;
+function intensity(l,h,s){
+  var r=rng(l*131+h*17+s*7)();var v=r*0.12;
+  for(var i=0;i<stars.length;i++)if(stars[i][0]===l&&stars[i][1]===h)v+=(s>4?0.5:0.15)+r*0.3;
+  for(var j=0;j<wakers.length;j++){var w=wakers[j];if(w.l===l&&w.h===h&&s>=w.from&&s<=w.to)v+=0.65}
+  return Math.min(1,v)}
+function drawW1(){
+  var active=0,example='';
+  for(var l=0;l<L;l++)for(var h=0;h<H;h++){
+    var v=intensity(l,h,step);var el=cells[l*H+h];
+    if(v>0.35){active++;el.style.background=(v>0.6)?css('--accent'):css('--accent-soft');if(!example&&v>0.6)example='floor '+l+', desk '+h}
+    else el.style.background=css('--cool-soft')}
+  q('#w1status').textContent='step '+step+' / '+S;
+  var strip='';for(var t=0;t<=step&&t<tokens.length;t++){strip+=(t===step)?'<b>'+tokens[t]+'</b>':tokens[t]}
+  q('#w1tokens').innerHTML=strip;
+  q('#w1log').innerHTML='snapshot: <em>'+active+' workers busy</em> · each worker&rsquo;s 64 favourite folders saved'+(example?' · busiest: <em>'+example+'</em>':'');
+}
+function advance(){step=(step+1)%(S+1);drawW1();if(step===S&&timer){clearInterval(timer);timer=null;q('#w1play').textContent='▶ play'}}
+q('#w1play').addEventListener('click',function(){
+  if(timer){clearInterval(timer);timer=null;this.textContent='▶ play'}
+  else{if(step>=S)step=0;timer=setInterval(advance,260);this.textContent='❚❚ pause'}});
+q('#w1step').addEventListener('click',advance);
+q('#w1reset').addEventListener('click',function(){step=0;if(timer){clearInterval(timer);timer=null;q('#w1play').textContent='▶ play'}drawW1()});
+drawW1();
+
+var K=12;
+function drawW2(){
+  var churn=+q('#w2churn').value/100, pool=+q('#w2pool').value;
+  var replaced=Math.round(churn*K);
+  var A=[],B=[];
+  for(var i=0;i<K;i++){A.push('f'+(i*7%pool));B.push(i<K-replaced?'f'+(i*7%pool):'f'+((i*7+pool/2|0)%pool+1))}
+  var setA={};A.forEach(function(x){setA[x]=1});
+  var inter=B.filter(function(x){return setA[x]}).length;
+  var jac=inter/(2*K-inter), ov=inter/K;
+  var chance=K/pool, rco=(pool<=K)?1:Math.max(0,(Math.min(1,inter/K)-chance)/(1-chance));
+  q('#w2churnv').textContent=Math.round(churn*100)+'%';
+  q('#w2poolv').textContent=pool;
+  q('#w2a').innerHTML=A.map(function(x){return '<span class="chip kept">'+x+'</span>'}).join('');
+  q('#w2b').innerHTML=B.map(function(x){return '<span class="chip '+(setA[x]?'kept':'new')+'">'+x+'</span>'}).join('');
+  q('#w2j').textContent=jac.toFixed(2);
+  q('#w2o').textContent=ov.toFixed(2);
+  q('#w2r').textContent=rco.toFixed(2);
+}
+q('#w2churn').addEventListener('input',drawW2);
+q('#w2pool').addEventListener('input',drawW2);
+drawW2();
+
+var N=200,trace=[],r3=rng(42);
+for(var t=0;t<N;t++){
+  var v=0.02+r3()*0.03;
+  if(t>=60&&t<=72)v=0.30+r3()*0.1;
+  if(t===30||t===130)v=0.24;
+  if(t>=150&&t<=170)v=0.40+r3()*0.1;
+  trace.push(v)}
+function events(hi,quiet){
+  var lo=0.05,out=[],qc=0;
+  for(var t=0;t<N;t++){var s=trace[t];
+    if(s>hi&&qc>=quiet){out.push(t);qc=0}
+    else if(s<lo)qc++;else qc=0}
+  return out}
+function drawW3(){
+  var c=q('#w3c');var W=c.clientWidth;c.width=W*devicePixelRatio;c.height=170*devicePixelRatio;
+  var g=c.getContext('2d');g.scale(devicePixelRatio,devicePixelRatio);
+  var hi=+q('#w3hi').value/100,quiet=+q('#w3q').value;
+  q('#w3hiv').textContent=hi.toFixed(2);q('#w3qv').textContent=quiet+' words';
+  g.clearRect(0,0,W,170);
+  var y=function(v){return 155-v*280},x=function(t){return t/(N-1)*(W-8)+4};
+  g.strokeStyle=css('--line');g.setLineDash([4,4]);g.beginPath();g.moveTo(4,y(hi));g.lineTo(W-4,y(hi));g.stroke();
+  g.setLineDash([]);
+  g.strokeStyle=css('--cool');g.lineWidth=1.6;g.beginPath();
+  for(var t=0;t<N;t++){t?g.lineTo(x(t),y(trace[t])):g.moveTo(x(0),y(trace[0]))}
+  g.stroke();
+  var ev=events(hi,quiet);
+  g.strokeStyle=css('--accent');g.lineWidth=2;
+  ev.forEach(function(t){g.beginPath();g.moveTo(x(t),18);g.lineTo(x(t),160);g.stroke()});
+  g.fillStyle=css('--muted');g.font='11px '+css('--mono');g.fillText('"busy" line '+hi.toFixed(2),8,y(hi)-5);
+  q('#w3n').textContent=ev.length+' wake-up'+(ev.length===1?'':'s')+' counted';
+}
+q('#w3hi').addEventListener('input',drawW3);
+q('#w3q').addEventListener('input',drawW3);
+window.addEventListener('resize',drawW3);
+drawW3();
+
+function drawW4(){
+  var p=+q('#w4p').value||1,b=+q('#w4b').value||1,s=+q('#w4s').value||1;
+  var bytes=p*2*16*128*2;
+  var ms=bytes/(b*1e9)*1e3;
+  var bar=ms/s;
+  q('#w4kb').textContent=bytes>=1048576?(bytes/1048576).toFixed(1)+' MB':(bytes/1024).toFixed(0)+' KB';
+  q('#w4ms').textContent=ms<1?ms.toFixed(3)+' ms':ms.toFixed(1)+' ms';
+  q('#w4bar').textContent=bar<0.01?'less than 0.01':bar.toFixed(2);
+  var v=q('#w4v');
+  if(bar<1){v.className='verdict';v.textContent='The elevator is faster than writing a single word — so even an alarm that rings at the very last moment is early enough. For one worker, timing is a non-problem; what matters is not crying wolf.'}
+  else{v.className='verdict warn';v.textContent='Now the ride takes '+Math.ceil(bar)+' words of writing — the alarm must ring that early or the model stands waiting. This is why we never move everyone’s folders at once.'}
+}
+['w4p','w4b','w4s'].forEach(function(id){q('#'+id).addEventListener('input',drawW4)});
+q('#w4one').addEventListener('click',function(){q('#w4p').value=64;drawW4()});
+q('#w4layer').addEventListener('click',function(){q('#w4p').value=64*16;drawW4()});
+q('#w4all').addEventListener('click',function(){q('#w4p').value=64*16*36;drawW4()});
+drawW4();
+
+var grades=[
+  {p:'1.00',r:'1.00',v:'looks perfect',ok:true,
+   desc:'Let each worker set their own alarm sensitivity — <em>after</em> peeking at which moments were real wake-ups. On the reasoning task this scores a flawless 1.00 / 1.00.',
+   note:'The problem: no live system can look at the answers before deciding. This number is a mirage — the upper bound, not something we can ship.'},
+  {p:'0.09',r:'0.41',v:'over-fires',ok:false,
+   desc:'Force one single sensitivity for every worker. But workers are wildly different — some fidget constantly, some never do — so one setting can’t fit them all.',
+   note:'It fires ~10,000 alarms for 407 real wake-ups. Precision collapses to 0.09 — nearly every alarm is false. Too strict a way to grade; no real system uses one global setting either.'},
+  {p:'0.08',r:'0.41',v:'honest, but weak',ok:false,
+   desc:'The fair, shippable rule: judge each worker against <em>their own</em> recent normal, decided live with no peeking. This is exactly what a real controller can do.',
+   note:'On the hard reasoning task the best alarm now catches ~4 in 10 wake-ups and cries wolf ~12× per real one. Honest — and simply not good enough to prefetch on.'}
+];
+function showGrade(i){
+  var gr=grades[i];
+  q('#w5p').textContent=gr.p;q('#w5r').textContent=gr.r;
+  q('#w5v').textContent=gr.v;
+  q('#w5desc').innerHTML=gr.desc;q('#w5note').innerHTML=gr.note;
+  ['w5a','w5b','w5c'].forEach(function(id,j){
+    q('#'+id).className=(j===i)?'':'ghost'});
+}
+q('#w5a').addEventListener('click',function(){showGrade(0)});
+q('#w5b').addEventListener('click',function(){showGrade(1)});
+q('#w5c').addEventListener('click',function(){showGrade(2)});
+showGrade(0);
+})();
+</script>
+
+</body>
+</html>
