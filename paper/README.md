@@ -25,12 +25,12 @@ Uses only base + `amsmath`, `booktabs`, `hyperref`, `graphicx`, `xcolor`,
 
 | Section | Numbers | Prose |
 |---|---|---|
-| §3 Churn | ✅ real (Table 1) | needs a pass |
-| §4 Prediction | ✅ real (Table 2, all P/R/F1) | needs a pass |
+| §3 Churn | ✅ real, includes 8B (Table 1) | needs a pass |
+| §4 Prediction | ✅ real, includes 8B (Table 2) | needs a pass |
 | §5 Clustering | ✅ real (z, boundary-recall) | needs a pass |
-| §6 Simulator | ✅ real (Table 3, matched-memory Pareto) | needs a pass |
+| §6 Simulator | ✅ real, includes 8B (Table 3, 4/4 wins at every scale) | needs a pass |
 | §7 Related work | ✅ paragraph from RESEARCH_PLAN | needs expansion |
-| §8 Limitations | draft written | probably fine |
+| §8 Limitations | 8B scale-caveat softened | probably fine |
 | Figures | ❌ pending — 4 figs need generation | — |
 | References | ❌ NEEDPROSE placeholders | pull from notes/ |
 
