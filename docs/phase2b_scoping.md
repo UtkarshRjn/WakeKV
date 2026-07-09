@@ -149,11 +149,9 @@ natively.
   numbers (LongBench avg within ±0.5); their throughput is expected to
   scale down.
 
-**First thing on the machine, before any FlexiCache work:**
-```
-nvidia-smi --query-gpu=pcie.link.gen.current,pcie.link.width.current --format=csv
-# expect: 4, 16
-```
+**PCIe confirmed 2026-07-09:** Gen4 x16, ~32 GB/s peak.
+
+**Still to do on the machine before any FlexiCache work:**
 Then a memcpy microbenchmark (`cudaMemcpyAsync` back-to-back at
 typical page sizes) to measure *actual* achieved PCIe bandwidth. Update
 the transfer-bar defaults in `wakekv/signals.py:transfer_steps_needed`
