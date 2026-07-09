@@ -93,7 +93,7 @@ a{color:var(--cool)}
 <header>
   <div class="eyebrow">WakeKV · your research, explained simply</div>
   <h1>What did we just run on the GPU?</h1>
-  <p class="lede">Two cheap experiments that decide whether your research idea deserves months of work. In plain words: <strong>do the model's "workers" change their habits in the middle of a job?</strong> And if they do — <strong>can we see it coming a moment before it happens?</strong></p>
+  <p class="lede">Two cheap experiments that decide whether your research idea deserves months of work. In plain words: <strong>do the model's "workers" change their habits in the middle of a job?</strong> And if they do — <strong>can we see it coming a moment before it happens?</strong> The results are in: <span style="color:var(--ok)">yes to the first</span>, <span style="color:var(--bad)">no (cheaply) to the second</span> — jump to <a href="#verdict">the verdict</a> for what that means.</p>
   <div class="pipe" role="img" aria-label="Pipeline: run the model and take notes, then score the notes for gate G0, then test the alarms for gate G1">
     <span class="node">run the model, take notes</span><span class="arr">→</span>
     <span class="node hot">score the notes (G0)</span><span class="arr">→</span>
@@ -206,7 +206,7 @@ a{color:var(--cool)}
     <tr><td><code>entropy_trend</code></td><td>"their eyes are darting around — searching for something?"</td></tr>
     <tr><td><code>needle_mass_delta</code></td><td>"they're already reaching for the fact" (rings latest — used as a reference)</td></tr>
   </table></div>
-  <p>Each alarm gets a report card: out of all the real wake-ups, how many did it warn about (and how early)? And when it rang, how often was it a false alarm? Now — how early does the alarm actually <em>need</em> to be? Try the calculator. The answer is the best news in the whole project:</p>
+  <p>Each alarm gets a report card: out of all the real wake-ups, how many did it warn about (and how early)? And when it rang, how often was it a false alarm? First, how early does the alarm actually <em>need</em> to be? Try the calculator — the bar turns out to be tiny, which is what makes the next section surprising:</p>
   <div class="panel">
     <div class="ctl">
       <label>folders to bring up <input type="number" id="w4p" value="64" min="1" max="8192"></label>
@@ -228,24 +228,56 @@ a{color:var(--cool)}
 </section>
 
 <section>
-  <div class="eyebrow">6 · why bother with gates</div>
-  <h2>What the two answers decide</h2>
-  <div class="gates">
-    <div class="card">
-      <span class="tag" style="color:var(--ok)">g0 · do workers change?</span>
-      <h3>If yes</h3>
-      <p>The foundation is solid — we start building the real system (Phase 2) knowing it solves a problem that actually exists.</p>
-      <h3>If no</h3>
-      <p>The idea dies after ~10 GPU-hours instead of after 3 months of building. That's the entire point of doing this first. (Backup plan already written: the small-model study.)</p>
+  <div class="eyebrow">5b · the honesty test — and what broke</div>
+  <h2>The same alarm can look perfect or useless</h2>
+  <p>This is the twist, and the most important lesson so far. The winning alarm (<code>drift</code>) first looked <strong>flawless</strong> — it caught every wake-up with no false alarms. Then we checked whether a <em>real</em> system could actually achieve that, and it fell apart. Same alarm, same data — the only thing that changed was how honestly we graded it. Click through the three ways:</p>
+  <div class="panel">
+    <div class="ctl">
+      <button id="w5a">1 · let each worker cheat</button>
+      <button id="w5b" class="ghost">2 · one rule for all</button>
+      <button id="w5c" class="ghost">3 · the fair rule</button>
     </div>
-    <div class="card">
-      <span class="tag" style="color:var(--ok)">g1 · can we see it coming?</span>
-      <h3>If yes</h3>
-      <p>Folders arrive before they're needed; the model never waits; the paper gets its strongest claim.</p>
-      <h3>If no</h3>
-      <p>Plan B: fetch folders <em>when</em> the worker wakes and honestly measure the short wait. Weaker, but a published competitor lives with the same wait — so the project survives.</p>
+    <p id="w5desc" style="min-height:2.8em;margin:.2rem 0 .8rem"></p>
+    <div class="stats" style="margin-bottom:.3rem">
+      <div class="stat"><b id="w5p">–</b><span>precision — when the alarm rings, how often it's real</span></div>
+      <div class="stat"><b id="w5r">–</b><span>recall — of the real wake-ups, how many it caught</span></div>
+      <div class="stat hot"><b id="w5v">–</b><span>verdict</span></div>
+    </div>
+    <p id="w5note" style="font-size:.83rem;color:var(--muted);margin-bottom:0"></p>
+  </div>
+  <p>The catch in grade&nbsp;1: we let every worker tune their own alarm sensitivity <em>after already knowing which moments were real wake-ups</em>. No live system can peek at the answers like that. Grade&nbsp;3 is what a real controller gets — judge each worker against their own normal, decide on the spot — and there, on the hard reasoning task, the best alarm catches only <strong>~4 in 10</strong> wake-ups while crying wolf <strong>~12 times</strong> for each real one.</p>
+  <div class="recap" style="background:var(--panel);border:1px solid var(--bad)">
+    <b style="color:var(--bad)">The finding:</b> cheap alarms can't reliably see wake-ups coming. That's not a tuning problem — every alarm we tried lands in the same place. For our system this hurts twice: the misses become stalls, and the false alarms drag workers' folders up to the GPU when they weren't needed — which quietly undoes the memory saving we wanted in the first place.
+  </div>
+</section>
+
+<section id="verdict">
+  <div class="eyebrow">6 · where we actually landed</div>
+  <h2>The verdict, honestly</h2>
+  <div class="gates">
+    <div class="card" style="border-color:var(--ok)">
+      <span class="tag" style="color:var(--ok)">g0 · do workers change? — <b>YES</b></span>
+      <p>Confirmed on our own models, across all three jobs. On the reasoning task, <strong>85% of workers</strong> shifted their reading habits at least once. The problem the project attacks is real. This gate <strong>passes</strong>.</p>
+    </div>
+    <div class="card" style="border-color:var(--bad)">
+      <span class="tag" style="color:var(--bad)">g1 · see it coming? — <b>NO (cheaply)</b></span>
+      <p>No cheap alarm predicts wake-ups well enough to prefetch ahead of time. This gate <strong>does not pass</strong> in its strong form — an honest, publishable negative result, not a dead end.</p>
     </div>
   </div>
+  <h2 style="margin-top:2rem">So what now — the fork</h2>
+  <div class="cards">
+    <div class="card">
+      <span class="tag">plan b · react</span>
+      <h3>Fetch on demand, measure the wait</h3>
+      <p>Drop the guessing. When a worker actually reaches for basement folders, fetch them then and honestly report the short stall. Fully supported by the data we have, and a published competitor (FlexiCache) lives with the same stall. Safe, solid, a bit less ambitious.</p>
+    </div>
+    <div class="card" style="border-color:var(--accent)">
+      <span class="tag" style="color:var(--accent-ink)">worth one cheap check · cluster</span>
+      <h3>Do wake-ups arrive in bunches?</h3>
+      <p>Per-worker guessing failed. But if many workers wake <em>together</em> at reasoning turning-points, one coarse "a shift is happening" trigger could catch them cheaply — a better story than any single alarm. A ~20-minute check on data we already have decides it.</p>
+    </div>
+  </div>
+  <p style="font-size:.9rem">Either way, the heart of the idea survives: <strong>nobody else moves a worker's folders to the basement and back, live, during the job.</strong> The prediction stumble just decides whether that happens by guessing ahead (if wake-ups cluster) or by reacting fast (if they don't).</p>
 </section>
 
 <section class="foot">
@@ -374,6 +406,30 @@ q('#w4one').addEventListener('click',function(){q('#w4p').value=64;drawW4()});
 q('#w4layer').addEventListener('click',function(){q('#w4p').value=64*16;drawW4()});
 q('#w4all').addEventListener('click',function(){q('#w4p').value=64*16*36;drawW4()});
 drawW4();
+
+var grades=[
+  {p:'1.00',r:'1.00',v:'looks perfect',ok:true,
+   desc:'Let each worker set their own alarm sensitivity — <em>after</em> peeking at which moments were real wake-ups. On the reasoning task this scores a flawless 1.00 / 1.00.',
+   note:'The problem: no live system can look at the answers before deciding. This number is a mirage — the upper bound, not something we can ship.'},
+  {p:'0.09',r:'0.41',v:'over-fires',ok:false,
+   desc:'Force one single sensitivity for every worker. But workers are wildly different — some fidget constantly, some never do — so one setting can’t fit them all.',
+   note:'It fires ~10,000 alarms for 407 real wake-ups. Precision collapses to 0.09 — nearly every alarm is false. Too strict a way to grade; no real system uses one global setting either.'},
+  {p:'0.08',r:'0.41',v:'honest, but weak',ok:false,
+   desc:'The fair, shippable rule: judge each worker against <em>their own</em> recent normal, decided live with no peeking. This is exactly what a real controller can do.',
+   note:'On the hard reasoning task the best alarm now catches ~4 in 10 wake-ups and cries wolf ~12× per real one. Honest — and simply not good enough to prefetch on.'}
+];
+function showGrade(i){
+  var gr=grades[i];
+  q('#w5p').textContent=gr.p;q('#w5r').textContent=gr.r;
+  q('#w5v').textContent=gr.v;
+  q('#w5desc').innerHTML=gr.desc;q('#w5note').innerHTML=gr.note;
+  ['w5a','w5b','w5c'].forEach(function(id,j){
+    q('#'+id).className=(j===i)?'':'ghost'});
+}
+q('#w5a').addEventListener('click',function(){showGrade(0)});
+q('#w5b').addEventListener('click',function(){showGrade(1)});
+q('#w5c').addEventListener('click',function(){showGrade(2)});
+showGrade(0);
 })();
 </script>
 
