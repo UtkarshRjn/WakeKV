@@ -58,8 +58,22 @@ def build_multiturn_prompt(tokenizer, n_filler_turns: int = 3) -> dict:
     for user_msg, asst_msg in _FILLER_TURNS[:n_filler_turns]:
         messages.append({"role": "user", "content": user_msg})
         messages.append({"role": "assistant", "content": asst_msg})
+    # A single-fact question ("what was my wifi password?") is answered in
+    # ~15 tokens then EOS — far too short to give Phase 1 a horizon (drift
+    # needs window=8, wake-events need 8 quiet steps). Ask for a longer,
+    # sequential recall of ALL facts with connective text between them, so
+    # the generation contains several quiet->active retrieval cycles that
+    # the per-step instrumentation can actually see.
     messages.append(
-        {"role": "user", "content": "By the way, what was my wifi password again?"}
+        {
+            "role": "user",
+            "content": "Before we wrap up, help me double-check the details I "
+            "gave you at the very start. Go through them one at a time, in "
+            "your own words: first remind me of my locker code and say what "
+            "it's for, then do the same for my wifi password, and finally for "
+            "my cat. Add a sentence of context for each so I know you "
+            "remember the conversation, not just the list.",
+        }
     )
     prompt = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
