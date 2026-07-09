@@ -39,6 +39,27 @@ Notes: models load with `attn_implementation="eager"` (needed to read
 attention weights); each step's attention is reduced to top-k immediately,
 so logs stay ~100–200 MB per run.
 
+### Gotchas
+
+- **Use `--dtype float32` for bf16-native models on pre-Ampere GPUs.**
+  `--dtype auto` falls back to fp16 when the GPU lacks bf16 (e.g. GTX 1080 Ti,
+  RTX 2080 Ti — anything before Ampere). bf16-native reasoning models such as
+  `DeepSeek-R1-Distill-*` **overflow to NaN in fp16**: attention weights go NaN
+  from the first layers on, generation collapses to a single repeated token
+  (`!!!!…`, argmax of NaN logits), and downstream `needle_score`/`copy_paste`
+  become all-NaN / all-False. The symptom in the analysis is an empty binary
+  channel (adjacent Jaccard 1.0, 0 active heads) and zero Phase-1 wake events.
+  On these GPUs run the R1-Distill CoT task with `--dtype float32` (a 1.5B model
+  fits in fp32 on 11 GB); on Ampere+ `auto`→bf16 is fine.
+
+- **CoT needle score is question-lookback, normalized to [0,1].** For `--task
+  cot` the "needle" span is the problem statement at the *start* of the prompt.
+  Because that span overlaps the local window while the context is still short,
+  the sink/local exclusions in the needle-mass denominator (`instrument.py`)
+  explicitly skip needle positions — otherwise the denominator collapses and the
+  ratio blows past 1 (to ~1e5) in early steps. The exclusion is a no-op for
+  NIAH, where the needle is disjoint from sink/local.
+
 ## Phase 1 — wake-up signal study
 
 Consumes Phase-0 logs; no extra GPU time. Evaluates candidate early-warning
