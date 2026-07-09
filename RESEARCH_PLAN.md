@@ -8,6 +8,56 @@ promote them back — instead of evicting and losing their history.**
 
 ---
 
+## 0. STATUS (updated 2026-07-10)
+
+The plan below was drafted around a **proactive** design (predict wake-ups,
+prefetch ahead of need). Phases 0–1 are now done and **changed the design**:
+the premise holds, but cheap wake-up prediction does not work, so WakeKV is
+now a **reactive** system (demote to CPU, fetch on demand, measure the
+stall). Read this section first; where the older sections below still say
+"predict/prefetch," §0 overrides them.
+
+**Done:**
+- **Phase 0 — G0 PASS.** Heads churn during decoding on our models
+  (Qwen2.5-3B, R1-Distill-1.5B): 63–85% of heads shift at least once,
+  adjacent-step Jaccard ~0.5 (continuous score), strongest on long CoT.
+  Premise confirmed. → `notes/phase01_results.md`.
+- **Phase 1 — G1 resolved to REACTIVE.** Cheap per-head wake-up signals
+  can't predict well enough to prefetch (deployable causal-z-score:
+  precision 0.06–0.20, recall 0.41–0.72). Wake-ups *are* temporally bursty
+  (CoT mean z +9.7 vs. null) but not tightly/detectably enough for a coarse
+  boundary trigger either. **Both proactive routes ruled out** → build
+  reactive. The prediction negative + burstiness become supporting analysis.
+
+**Now (Phase 2a — this branch, PR #3):** a **reactive-residency simulator**
+(`wakekv/residency.py`) — a cheap, no-GPU go/no-go gate that replays logged
+attention through Full / Frozen / Reactive policies and asks: at matched
+memory, does reactive miss less than frozen in shifting regimes (C2)?
+
+**Not yet started:** Phase 2b (real vLLM/FlexiCache system) and Phase 3
+(real eval). These produce the paper's headline numbers and need a
+≥24 GB GPU.
+
+### Evidence ladder — what each stage establishes
+
+| Stage | Establishes | Status |
+|---|---|---|
+| Phase 0 | Premise: heads churn during decoding | ✅ done (G0 pass) |
+| Phase 1 | Cheap prediction fails → reactive design | ✅ done (G1 → reactive) |
+| **Phase 2a: simulator** | Reactive beats frozen *in principle*, on logged attention, at page granularity | ⏳ this branch |
+| Phase 2b: real system | Measured memory saved, PCIe **stall time**, throughput in vLLM | ❌ needs ≥24 GB GPU |
+| Phase 3: evaluation | 7–8B models, LongBench/RULER/SCBench **quality**, real baselines | ❌ |
+
+**The simulator is a gate, not a result.** It counts *misses*, not stall
+*time*; works at page granularity approximated from top-k, not the full KV
+cache; measures no *quality* (assumes reactive preserves accuracy by
+fetching on demand); compares against a FlexiCache-*style* policy, not their
+code; scout-scale models. A positive result becomes one *figure* (the
+idealized tradeoff) and earns the right to spend real GPU time — the
+headline numbers only exist after Phase 2b + Phase 3.
+
+---
+
 ## 1. One-line pitch and positioning
 
 > Prior decode-time budget reallocation is evict-only (ReasonAlloc); prior
@@ -31,38 +81,50 @@ on RTX 4090 / PCIe Gen3) is the feasibility proof.
 
 ## 2. Claims the paper will make (and the experiment that backs each)
 
-| # | Claim | Experiment |
-|---|-------|-----------|
-| C1 | Head priority shifts materially during decoding in our target regimes (long CoT, multi-turn) | E0 churn measurement + E1 trajectory plots (nobody has published one) |
-| C2 | Frozen head classification leaves quality/efficiency on the table in those regimes | E3a/E3b: FlexiCache-style static split vs. our controller, long-CoT + multi-turn |
-| C3 | Reversible demotion beats evict-based dynamic reallocation at equal GPU-resident budget | E3c: WakeKV vs. ReasonAlloc-style eviction (same utility score, same cadence) |
-| C4 | Wake-ups are detectable early enough to hide PCIe latency | E2 signal study: lead-time vs. transfer-time analysis |
-| C5 | Reversibility permits aggressive budget floors that eviction cannot afford | E4 floor ablation (μ → 0) |
-| C6 | Overhead is negligible (controller + transfers) | E5 systems accounting: stall time, PCIe traffic, tokens/sec, block-level GPU bytes |
+| # | Claim | Experiment | Status |
+|---|-------|-----------|--------|
+| C1 | Head priority shifts materially during decoding in our target regimes (long CoT, multi-turn) | Phase 0 churn measurement | ✅ supported (G0) |
+| C2 | Frozen head classification leaves quality/efficiency on the table in those regimes | 2a simulator (miss-vs-memory Pareto), then 2b/E3a-b real system | ⏳ simulator |
+| C3 | Reversible demotion (offload) beats evict-based demotion at equal GPU-resident budget | E3c: offload vs. evict, same budget | ❌ Phase 3 |
+| ~~C4~~ | ~~Wake-ups detectable early enough to hide PCIe latency~~ | Phase 1 signal study | ❌ **refuted** → reactive |
+| C5 | Reversibility permits aggressive budget floors that eviction cannot afford | E4 floor ablation (μ → 0) | ❌ Phase 3 |
+| C6 | Overhead is acceptable (reactive fetch + accounting) | E5 systems accounting: stall time, PCIe, tokens/sec, block-level GPU bytes | ❌ Phase 2b/3 |
+
+**C4 is refuted** (Phase 1): no cheap signal predicts wake-ups well enough
+to prefetch, so WakeKV promotes *reactively*. The prediction negative
+result is now itself a contribution (motivates the reactive design).
 
 Minimum publishable unit = C1 + C2 + C3 on one model, one battleground
 regime, with honest systems accounting. Everything else strengthens.
 
-## 3. Method sketch (v0 design, to be refined in Phase 1)
+## 3. Method sketch (REACTIVE — revised after Phase 1)
 
-State per KV head (GQA group): `resident_budget` (pages on GPU) +
-`reservoir` (full KV mirrored in pinned host memory — FlexiCache-style,
-so demotion is never destructive).
+*Supersedes the original proactive sketch. Phase 1 refuted C4, so there is
+no prediction/prefetch step.*
 
-Controller loop, every Δ decode steps (start Δ=128 per ReasonAlloc's
-proven ~0%-overhead cadence; ablate {32, 64, 128, 256}):
+State per KV head (GQA group): a GPU-resident set capped at `budget` pages +
+a `reservoir` (full KV mirrored in pinned host memory — FlexiCache-style, so
+demotion is never destructive).
 
-1. **Score heads** with the layer-pooled utility used by ReasonAlloc
-   (R-KV importance+redundancy, KthLargest threshold, count-above-τ) —
-   reused verbatim for apples-to-apples comparison.
-2. **Detect drift/wake-ups** with the cheap signals that come free at
-   rerank time (candidates in §5; final choice from E2).
-3. **Demote** cooling heads: shrink resident budget, offload surplus pages
-   (async, low-priority stream). Nothing is lost — reservoir keeps all.
-4. **Promote** warming heads: prefetch their high-score pages from
-   reservoir ahead of need (lead time from the early-warning signal);
-   grow resident budget.
-5. Budget floor μ can be near zero — a starved head is recoverable.
+Reactive loop, every decode step:
+
+1. Each head attends its top-k pages (sparse decode, Quest/FlexiCache-style).
+2. **Fetch on demand:** a wanted page sitting in the reservoir (CPU) is
+   pulled to GPU now — a promotion, and a measured stall. Quality is
+   preserved by construction (we always fetch what's needed); the cost is
+   the stall, not accuracy.
+3. **Demote** by recent demand: when a head's resident set exceeds `budget`,
+   evict the least-recently-wanted pages to the reservoir. Reversible —
+   nothing is lost.
+
+Contrast with the two competitors this beats:
+- **FlexiCache** fixes each head's residency by *offline* classification;
+  it can't demote a head that cools mid-run or promote one that heats up.
+- **ReasonAlloc** reallocates head budgets during decode but by *eviction*
+  — a re-grown budget can't recover destroyed KV. Reactive keeps it on CPU.
+
+Reversibility is what makes the LRU demotion safe (evicted ≠ lost) and lets
+`budget` go aggressively low (a starved head is recoverable on demand).
 
 GQA note: all decisions at KV-group granularity (Llama-3.1-8B: 8 groups ×
 32 layers = 256 units; small models have as few as 4–8 groups — handled
@@ -78,10 +140,9 @@ explicitly, see risk R4).
   score has a thresholding-artifact caveat).
 - Also log per-head top-K page sets over decode (FlexiCache's RCO
   harness) — same runs serve Phase 1.
-- **Gate G0:** meaningful churn on our models/regimes (e.g., adjacent-step
-  overlap well below 1, and churn concentrated at detectable events).
-  If heads are static in our regimes → idea dies cheaply; pivot to T8
-  (small-model study) from the ideation notes. ~10 GPU-hours.
+- **Gate G0 — ✅ PASSED.** 63–85% of heads drift; adjacent Jaccard ~0.5.
+  Ran on the 11 GB scout card (Qwen2.5-3B, R1-Distill-1.5B) rather than
+  7–8B — those confirm at Phase 3. Details: `notes/phase01_results.md`.
 
 ### Phase 1 — Signal study, offline (Weeks 2–3)
 - On Phase-0 logged traces, evaluate candidate wake-up signals (§5) for:
@@ -91,25 +152,39 @@ explicitly, see risk R4).
 - Characterize churn timing: correlated with reasoning transitions /
   turn boundaries? (Novel measurement on top of 2602.11162 — publishable
   content regardless.)
-- **Gate G1:** ≥1 signal whose lead time × decode-step time exceeds the
-  transfer time of a typical promotion at our budgets. If no signal has
-  enough lead time → fall back to reactive promotion + measure the stall
-  cost honestly (the paper weakens but survives; FlexiCache pauses
-  requests the same way). ~20 GPU-hours.
+- **Gate G1 — ✅ RESOLVED → REACTIVE.** No signal predicts wake-ups well
+  enough (causal z-score P 0.06–0.20, R 0.41–0.72); wake-ups are bursty but
+  not tightly/detectably clustered (CoT z +9.7, but 2%-budget trigger
+  catches only 54%). Both proactive routes ruled out → reactive design.
+  Ran offline on Phase-0 logs (no extra GPU). Details:
+  `notes/phase01_results.md`.
 
-### Phase 2 — Minimal system (Weeks 3–6)
+### Phase 2a — Reactive-residency simulator (this branch, PR #3) ⏳
+- Cheap, no-GPU go/no-go gate before touching vLLM. `wakekv/residency.py`
+  replays logged attention through Full / Frozen (FlexiCache-style) /
+  Reactive (WakeKV LRU + fetch-on-demand), sweeping per-head budget →
+  miss-rate-vs-memory Pareto.
+- **Gate G2a:** at matched mean memory, does reactive miss less than frozen
+  on the real CoT/multi-turn logs? Synthetic shifting-role check already
+  confirms the harness (reactive 0.28@48pg vs frozen 0.75@146pg).
+  - **Yes** → C2 supported in principle; proceed to 2b.
+  - **No** → iterate the demotion policy in the fast simulator loop (not in
+    vLLM) before committing engineering. Informative either way, ~0 GPU.
+- Caveats (why this is a gate, not a result): counts misses not stall
+  *time*; page granularity from top-k; no *quality* measured; FlexiCache-
+  *style* not FlexiCache; scout scale. See §0 evidence ladder.
+
+### Phase 2b — Real system (needs ≥24 GB GPU) ❌
 - Fork FlexiCache (Apache 2.0, vLLM): keep MinMax score cache, per-head
-  block tables, UVA transfer kernels. Replace the frozen 25% split with
-  the online controller hung off their existing rerank hook.
-- Milestones: M2a controller runs (correctness: outputs match dense
-  attention within sparse-top-K tolerance); M2b end-to-end long-CoT run;
-  M2c controller overhead <2% tokens/sec at batch 8.
-- Simplification permitted for a workshop: Python-level controller,
-  custom kernels only where FlexiCache already provides them.
-- **Gate G2:** M2a–M2c pass. If FlexiCache codebase proves unworkable →
-  fallback harness: HuggingFace-level implementation with simulated
-  paging + measured (not simulated) PCIe transfers; report both. ~40
-  GPU-hours (mostly dev iterations).
+  block tables, UVA transfer kernels. Replace the frozen 25% split with the
+  reactive fetch-on-demand promotion + LRU demotion.
+- Milestones: M2a outputs match dense within sparse-top-K tolerance; M2b
+  end-to-end long-CoT run; M2c reactive overhead + real PCIe **stall time**
+  measured.
+- **Gate G2b:** measured memory saved and stall time in a real engine. If
+  FlexiCache proves unworkable → HuggingFace-level harness with simulated
+  paging + *measured* (not simulated) PCIe transfers; report both. ~40
+  GPU-hours.
 
 ### Phase 3 — Evaluation (Weeks 6–9)
 Battlegrounds (regimes where ALL frozen-role systems are untested):
@@ -144,7 +219,13 @@ Battlegrounds (regimes where ALL frozen-role systems are untested):
 - Post arXiv preprint as soon as internal results hold, even before the
   workshop deadline.
 
-## 5. Candidate wake-up signals (Phase 1 menu)
+## 5. Candidate wake-up signals (Phase 1 menu — HISTORICAL)
+
+*Kept for the record. Phase 1 tested these; none predicts well enough for
+prefetch (§0), so the reactive design uses none of them as a trigger. The
+k-step-ahead probe (last row) remains the only untested option and is
+noted as possible future work, not the current plan.*
+
 
 | Signal | Origin | Cost | Notes |
 |---|---|---|---|
@@ -206,6 +287,13 @@ direction. WakeKV closes the intersection.
 
 ## 9. Supporting documents
 
+- `notes/phase01_results.md` — **Phase 0–1 numeric record**: G0 tables, the
+  G1 honesty ladder, the clustering finding, and the resolved reactive
+  decision. The current-state-of-truth companion to §0.
+- `docs/phase01_explainer.html` — plain-language interactive walkthrough of
+  Phases 0–1.
+- `wakekv/residency.py` + `scripts/simulate_residency.py` — the Phase 2a
+  reactive-residency simulator.
 - `notes/big_four_deep_read.md` — close reads of FlexiCache, HeteroCache,
   ReasonAlloc, Retrieval-Heads-are-Dynamic: attack surfaces, reusable
   components, all key numbers with sources.
