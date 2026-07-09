@@ -23,8 +23,10 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from wakekv.signals import (
+    evaluate_fixed_threshold,
     evaluate_signal,
     page_kv_bytes,
+    pooled_threshold,
     signal_drift,
     signal_entropy_trend,
     signal_needle_mass_delta,
@@ -49,6 +51,8 @@ def main() -> None:
     ap.add_argument("--pcie-gbps", type=float, default=21.0)
     ap.add_argument("--decode-step-ms", type=float, default=30.0)
     ap.add_argument("--max-heads", type=int, default=0, help="0 = only heads with events")
+    ap.add_argument("--fixed-quantile", type=float, default=0.9,
+                    help="global threshold = this quantile of pooled signal values")
     args = ap.parse_args()
 
     task_dir = Path(args.task_dir)
@@ -57,6 +61,7 @@ def main() -> None:
         sys.exit(f"no runs under {task_dir}")
 
     agg: dict[str, list] = defaultdict(list)
+    raw: dict[str, list] = defaultdict(list)  # name -> [(signal_array, events)]
     total_events = 0
     for rd in run_dirs:
         data = np.load(rd / "log.npz")
@@ -90,6 +95,7 @@ def main() -> None:
             for name, sig in sigs.items():
                 for r in evaluate_signal(sig, ev):
                     agg[name].append(r)
+                raw[name].append((sig, ev))
 
     if not agg:
         sys.exit("no wake-up events found — check thresholds or G0 first")
@@ -135,6 +141,33 @@ def main() -> None:
     if not best_by_signal:
         lines.append("- NO signal clears the transfer bar -> fallback: reactive "
                      "promotion + honest stall accounting (plan risk R2).")
+
+    # Honest version: ONE global threshold per signal (what the controller
+    # actually uses), events/alarms pooled across all heads — no per-head
+    # cherry-picking. This is the table the Phase 2 design should trust.
+    lines += ["", f"## Fixed global threshold (quantile {args.fixed_quantile})",
+              "One cutoff per signal, applied to every head, pooled P/R. "
+              "This is what a runtime controller can actually achieve.", "",
+              "| signal | lead | precision | recall | events | alarms |",
+              "|---|---|---|---|---|---|"]
+    fixed_best = {}
+    for name, per_head in raw.items():
+        th = pooled_threshold(per_head, args.fixed_quantile)
+        res = evaluate_fixed_threshold(per_head, th)
+        for lead in sorted(res):
+            r = res[lead]
+            lines.append(f"| {name} | {lead} | {r.precision:.2f} | {r.recall:.2f} "
+                         f"| {r.n_events} | {r.n_alarms} |")
+            if lead >= steps_bar and not np.isnan(r.precision):
+                cur = fixed_best.get(name)
+                # rank by F1 so we don't reward precision at zero recall
+                f1 = 0.0 if (r.precision + r.recall) == 0 else \
+                    2 * r.precision * r.recall / (r.precision + r.recall)
+                if cur is None or f1 > cur[0]:
+                    fixed_best[name] = (f1, lead, r.precision, r.recall)
+    lines += ["", "Winner under a fixed threshold (best F1 at lead >= bar):"]
+    for name, (f1, lead, p, r) in sorted(fixed_best.items(), key=lambda kv: -kv[1][0]):
+        lines.append(f"- {name}: lead {lead} -> P {p:.2f}, R {r:.2f} (F1 {f1:.2f})")
 
     (task_dir / "signal_study.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))

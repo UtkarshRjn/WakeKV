@@ -148,6 +148,45 @@ def evaluate_signal(
     return results
 
 
+def evaluate_fixed_threshold(
+    per_head: list[tuple[np.ndarray, list[int]]],
+    threshold: float,
+    leads: tuple[int, ...] = (1, 2, 4, 8, 16, 32),
+) -> dict[int, LeadTimeResult]:
+    """Pooled precision/recall at ONE global threshold across all heads.
+
+    The honest counterpart to picking the best per-head threshold: the
+    runtime controller fires on a single fixed cutoff, so grade the signal
+    the same way. ``per_head`` is a list of (signal_array, events) pairs;
+    events and alarms are pooled across every head before computing P/R,
+    so a signal can't look good by cherry-picking a cutoff per head.
+    """
+    out: dict[int, LeadTimeResult] = {}
+    for lead in leads:
+        tot_ev = rec = tot_al = true_al = 0
+        for sig, events in per_head:
+            alarms = np.flatnonzero(sig > threshold)
+            tot_ev += len(events)
+            rec += sum(
+                1 for t in events if np.any((alarms >= t - lead) & (alarms < t))
+            )
+            tot_al += len(alarms)
+            true_al += sum(
+                1 for s in alarms if any(s < t <= s + lead for t in events)
+            )
+        precision = true_al / tot_al if tot_al else float("nan")
+        recall = rec / tot_ev if tot_ev else float("nan")
+        out[lead] = LeadTimeResult(lead, threshold, precision, recall, tot_ev, tot_al)
+    return out
+
+
+def pooled_threshold(per_head: list[tuple[np.ndarray, list[int]]], quantile: float) -> float:
+    """A single global threshold: the given quantile of all signal values
+    pooled across heads. Used to grade a signal as the controller would."""
+    allvals = np.concatenate([sig for sig, _ in per_head]) if per_head else np.zeros(1)
+    return float(np.quantile(allvals, quantile))
+
+
 def transfer_steps_needed(
     pages_to_fetch: int,
     page_kv_bytes: int,

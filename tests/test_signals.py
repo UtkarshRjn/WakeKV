@@ -2,8 +2,10 @@ import numpy as np
 import pytest
 
 from wakekv.signals import (
+    evaluate_fixed_threshold,
     evaluate_signal,
     page_kv_bytes,
+    pooled_threshold,
     signal_drift,
     signal_entropy_trend,
     signal_needle_mass_delta,
@@ -75,6 +77,32 @@ def test_evaluate_signal_useless_predictor():
     events = [400]
     results = evaluate_signal(signal, events, leads=(1,), thresholds=np.array([0.99]))
     assert results[0].precision < 0.5
+
+
+def test_fixed_threshold_pools_across_heads():
+    # Two heads: one where the signal cleanly precedes its event, one pure
+    # noise with no event. A global threshold must still recover the real
+    # event and not be fooled into perfect scores by per-head tuning.
+    good = np.zeros(100)
+    good[38] = good[39] = 1.0  # spikes just before the event at 40
+    noise = np.linspace(0, 0.3, 100)
+    per_head = [(good, [40]), (noise, [])]
+    th = pooled_threshold(per_head, 0.9)
+    res = evaluate_fixed_threshold(per_head, th, leads=(4,))
+    r = res[4]
+    assert r.n_events == 1
+    assert r.recall == 1.0  # the real event is caught
+
+
+def test_fixed_threshold_penalizes_false_alarms():
+    # A signal that fires everywhere gets full recall but poor precision
+    # once pooled — the honest counterweight to per-head cherry-picking.
+    trigger_happy = np.ones(50)
+    per_head = [(trigger_happy, [25])]
+    res = evaluate_fixed_threshold(per_head, 0.5, leads=(2,))
+    r = res[2]
+    assert r.recall == 1.0
+    assert r.precision < 0.2  # ~49 alarms, only a few near the single event
 
 
 def test_transfer_math():
