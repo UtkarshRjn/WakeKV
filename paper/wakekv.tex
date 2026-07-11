@@ -117,8 +117,9 @@ One run produces $\approx 100$--$200$~MB of logs.
 \textbf{Hardware.} The 1.5B/3B measurements were taken on a single
 NVIDIA RTX~2080~Ti (11~GB, Turing) --- scout-scale by design. The
 8B measurements were taken on a single NVIDIA A30 (24~GB, Ampere,
-PCIe Gen4 $\times$16, $\approx$25~GB/s achieved H2D). The follow-up
-serving-system evaluation (\S\ref{sec:limits}) uses the A30 throughout.
+PCIe Gen4 $\times$16, 24.3~GB/s achieved H2D over 256~MB pinned
+transfers). The follow-up serving-system evaluation
+(\S\ref{sec:limits}) uses the A30 throughout.
 
 \section{Do Heads Shift During Decoding?}
 \label{sec:churn}

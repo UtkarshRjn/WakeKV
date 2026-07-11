@@ -216,14 +216,16 @@ def pooled_threshold(per_head: list[tuple[np.ndarray, list[int]]], quantile: flo
 def transfer_steps_needed(
     pages_to_fetch: int,
     page_kv_bytes: int,
-    pcie_gbps: float = 21.0,
+    pcie_gbps: float = 24.3,
     decode_step_ms: float = 30.0,
 ) -> float:
     """Decode steps a CPU->GPU promotion needs; the lead-time bar for G1.
 
-    Defaults: 21 GB/s effective PCIe (HeteroCache's measured Gen4 number)
-    and 30 ms/step (~33 tok/s single-request 8B decode). Override with
-    measured values from your hardware.
+    Default 24.3 GB/s is our A30 wolverine box's *measured* achieved H2D
+    bandwidth over PCIe Gen4 x16 with pinned host memory (2026-07-11).
+    HeteroCache reported 21 GB/s on a similar Gen4 setup, so 24.3 is
+    consistent. 30 ms/step ≈ 33 tok/s single-request 8B decode. Override
+    with your own measured numbers, but do not use theoretical peaks.
     """
     bytes_total = pages_to_fetch * page_kv_bytes
     ms = bytes_total / (pcie_gbps * 1e9) * 1e3
