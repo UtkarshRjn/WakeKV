@@ -45,7 +45,7 @@ common_bench_args() {
   local rerank="$1" outfile="$2"
   echo --dataset-name leval --dataset-path "$DATASET" \
        --model "$MODEL" \
-       --gpu-memory-utilization 0.90 --tensor-parallel-size 1 --max-model-len 8192 \
+       --gpu-memory-utilization 0.90 --tensor-parallel-size 1 --max-model-len 10240 \
        --no-enable-prefix-caching --disable-cascade-attn \
        --max-num-batched-tokens 8192 --max-num-seqs 16 \
        --input-len "$INPUT_LEN" --output-len "$OUTPUT_LEN" --num-prompts "$NUM_PROMPTS" \
