@@ -1,4 +1,4 @@
-# FlexiCache vs vLLM — throughput reproduction (Mistral-7B, A30)
+# FlexiCache vs vLLM — throughput & accuracy reproduction (Mistral-7B, A30)
 
 Reproduction of FlexiCache's end-to-end throughput claim on our hardware, using the
 authors' own benchmark harness (`benchmarks/FlexiCache/Throughput/`). Relevant to this
@@ -51,6 +51,31 @@ Generation throughput (`output_tokens_per_second`), 24 prompts × 8k-token input
 - Paper reports **1.38×–1.55×** offline throughput on an H100; we see **1.32×–1.67×** on
   an A30 at 8k context. Absolute numbers aren't comparable (different GPU, much smaller
   scale) but the **relative trend holds** — which is what the authors' guide says to check.
+
+## Accuracy retention (LongBench)
+
+Second reproduction: does FlexiCache's top-K sparse attention preserve output quality?
+Dense (stock vLLM, full KV) vs FlexiCache (topK=64), Mistral-7B, on a 4-task LongBench
+subset (2 QA + multi-hop + summarization). Scaled for the A30: 8k truncation, batch 4,
+**30 samples/task** (paper uses full ~200/task).
+
+| Task | Metric | Dense | FlexiCache | Δ |
+|---|---|---:|---:|---:|
+| Qasper | F1 | 35.03 | 38.24 | +3.21 |
+| 2WikiMQA | F1 | 15.33 | 17.28 | +1.95 |
+| TriviaQA | F1 | 87.06 | 87.06 | 0.00 |
+| MultiNews | Rouge-L | 26.11 | 25.83 | −0.28 |
+| **Avg ratio (FC/Dense)** | | — | **1.05** | |
+
+**Read:** FlexiCache preserves accuracy — TriviaQA identical, MultiNews within 0.3, the
+two QA tasks nominally higher. The 1.05 ratio is **not** evidence FlexiCache is more
+accurate; at 30 samples/task the QA bumps are noise. Conclusion: **no quality loss from
+the 64-page sparse-attention budget**, matching the paper's ~99% retention. Full-sample
+LongBench would tighten the ratio toward 1.00.
+
+Reproduce: `bash /home/utranjan/flexicache_longbench_a30.sh`
+(local runner edits: `run_benchmark.py` +`--limit`/`trust_remote_code`,
+`config/model2maxlen.json` Mistral 8k cap — none pushed upstream).
 
 ## Caveats
 
