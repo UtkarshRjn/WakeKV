@@ -108,6 +108,29 @@ def test_shimmed_main_installs_shim_when_mode_set(monkeypatch, tmp_path):
     assert calls == {"mode": "reactive", "interval": 4}
 
 
+def test_shimmed_main_puts_script_dir_on_path(monkeypatch, tmp_path, capsys):
+    """Regression: a target script must be able to import its siblings, like
+    `python script.py` does. runpy.run_path alone does NOT add the script's
+    directory to sys.path — the bootstrap must."""
+    pkgdir = tmp_path / "bench"
+    pkgdir.mkdir()
+    (pkgdir / "sibling.py").write_text("VALUE = 'sibling-import-ok'\n")
+    target = pkgdir / "main.py"
+    target.write_text("from sibling import VALUE; print('GOT', VALUE)\n")
+
+    from wakekv import _shimmed_main
+
+    monkeypatch.setenv("WAKEKV_MODE", "off")
+    monkeypatch.setenv("WAKEKV_RERANK_INTERVAL", "1")
+    # Invoke with a relative path from a different cwd, as the sweep does.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["_shimmed_main", os.path.join("bench", "main.py")])
+
+    rc = _shimmed_main.main()
+    assert rc == 0
+    assert "GOT sibling-import-ok" in capsys.readouterr().out
+
+
 def test_shimmed_main_bad_interval_returns_error(monkeypatch):
     from wakekv import _shimmed_main
 

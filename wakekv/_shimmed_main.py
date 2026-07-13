@@ -65,8 +65,11 @@ def main() -> int:
         runpy.run_module(module, run_name="__main__", alter_sys=True)
     else:
         script = argv[0]
-        # Mimic `python script.py ...`.
+        # Mimic `python script.py ...`: argv, and the script's own directory on
+        # sys.path[0] (runpy.run_path does NOT add it, unlike the interpreter),
+        # so the target's sibling imports resolve.
         sys.argv = list(argv)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
         runpy.run_path(script, run_name="__main__")
     return 0
 
