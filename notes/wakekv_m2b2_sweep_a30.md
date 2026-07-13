@@ -29,17 +29,30 @@ FlexiCache showed its biggest speedup over vanilla vLLM).
 - The curve is monotone in R: overhead falls as R grows, so throughput rises
   and asymptotes toward the no-rerank ceiling. R=16 is the Pareto knee here.
 
-## Important caveat — this is throughput only
+## Quality axis (LongBench, `scripts/wakekv_longbench_check.sh`)
 
-The benchmark measures tokens/s, **not** output quality. Reactive makes
-*every* head sparse (top-64 pages), where stock keeps 64 heads fully dense.
-Some of the speedup is reactive simply doing less attention work. Whether
-reactive retains accuracy at these intervals is a **separate axis not tested
-here** — it needs the LongBench-style eval (see
-`notes/flexicache_benchmark_a30.md`) run under `--mode reactive` across the
-interval sweep. Expect a quality/throughput tradeoff: high R = fast but
-staler residency. The real Pareto is throughput × accuracy; this file is one
-axis of it.
+Reactive at **R=1** (every-step rerank) vs stock FlexiCache, 4 tasks ×
+30 samples, scored with the harness `eval.py`:
+
+| task | stock | reactive-r1 | Δ |
+|---|---:|---:|---:|
+| triviaqa | 87.06 | 87.06 | 0.00 |
+| multi_news | 25.63 | 26.16 | +0.53 |
+| qasper | 37.67 | 35.42 | −2.25 |
+| 2wikimqa | 16.58 | 14.00 | −2.58 |
+| **mean** | **41.73** | **40.66** | **−1.07** |
+
+Reactive retains **~97.4%** of stock LongBench mean at R=1 while running
+**1.34×** faster — supports "fetch-on-demand preserves quality by
+construction". TriviaQA identical, summarization flat, the two multi-hop/QA
+tasks off ~2.5 pts (small, near noise at N=30; 2wikimqa is the one to watch).
+
+**Pareto is incomplete.** Quality is measured only at R=1 — reactive's
+*quality ceiling* (larger R = staler residency = likely lower quality but
+higher throughput). The high-throughput points (R=8 → 2.22×, R=16 → 2.33×)
+have **no quality number yet**. To finish the throughput×quality Pareto, run
+`RERANK_INTERVAL=<R> bash scripts/wakekv_longbench_check.sh` for R in
+{2,4,8,16} (stock is re-scored each time; ~1h each on A30).
 
 Other caveats: single output length (1000), 24 prompts, A30 24GB with
 `max-model-len 10240` and a 16GB host KV pool — ranks policies on this box,
