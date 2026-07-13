@@ -124,33 +124,33 @@ def simulate_full(stream: Stream, n_units: int) -> SimStats:
 
 
 def simulate_reactive(stream: Stream, n_units: int, budget: int) -> SimStats:
-    """Per-head LRU cap of ``budget`` pages; fetch-on-demand from CPU."""
-    resident = [dict() for _ in range(n_units)]   # page -> last-used step (on GPU)
-    reservoir = [set() for _ in range(n_units)]    # pages on CPU
-    st = SimStats("reactive", budget, len(stream), 0, 0, 0, 0, 0, 0)
+    """Per-head LRU cap of ``budget`` pages; fetch-on-demand from CPU.
+
+    Thin driver around ``ReactiveController`` — same state machine backs
+    both the simulator here and the FlexiCache monkey-patch shim in PR #8,
+    so simulator numbers and real-system numbers use identical bookkeeping.
+    """
+    from wakekv.reactive_controller import ReactiveController
+
+    ctrl = ReactiveController(n_units, budget, rerank_interval=1)
     for t, row in enumerate(stream):
-        fetched_this_step = False
+        ctrl.begin_step(t)
         for u, wanted in enumerate(row):
-            for p in wanted:
-                st.total_accesses += 1
-                if p in resident[u]:
-                    resident[u][p] = t
-                elif p in reservoir[u]:
-                    st.misses += 1
-                    st.fetches += 1
-                    fetched_this_step = True
-                    reservoir[u].discard(p)
-                    resident[u][p] = t
-                else:
-                    resident[u][p] = t  # brand-new page: normal cache growth
-            while len(resident[u]) > budget:
-                lru = min(resident[u], key=resident[u].get)
-                del resident[u][lru]
-                reservoir[u].add(lru)
-        if fetched_this_step:
-            st.stall_steps += 1
-        _tally_memory(resident, st)
-    return st
+            ctrl.on_unit_lru(u, set(wanted))
+        ctrl.end_step()
+
+    s = ctrl.stats
+    return SimStats(
+        policy="reactive",
+        budget=budget,
+        steps=s.steps,
+        total_accesses=s.total_wanted,
+        misses=s.total_misses,
+        fetches=s.total_fetches,
+        stall_steps=s.stall_steps,
+        resident_page_steps=s.resident_page_steps,
+        peak_resident_pages=s.peak_resident_pages,
+    )
 
 
 def simulate_frozen(
