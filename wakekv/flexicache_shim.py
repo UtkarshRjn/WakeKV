@@ -165,6 +165,11 @@ def _apply_config_override(config: Any) -> ShimReport:
 
     if _current_mode == "reactive":
         config.unstable_heads = []
+        # Keep the scalar consistent with the (now empty) list, else FlexiCache's
+        # block-count assertion takes the num_unstable_heads>0 branch and expects
+        # the un-rounded total (off-by-one vs the 0-unstable-head allocation).
+        config.num_unstable_heads = 0
+        config.unstable_heads_portion = 0.0
         config.rerank_frequency = _current_rerank_interval
     elif _current_mode == "identity":
         pass  # keep whatever the config loaded from model_data
