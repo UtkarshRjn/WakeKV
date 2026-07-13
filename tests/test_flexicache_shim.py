@@ -35,6 +35,8 @@ def _mock_config(unstable_heads: list[Any], rerank_frequency: int) -> Any:
     return SimpleNamespace(
         unstable_heads=list(unstable_heads),
         rerank_frequency=rerank_frequency,
+        num_unstable_heads=len(unstable_heads),
+        unstable_heads_portion=len(unstable_heads) / 256.0,
     )
 
 
@@ -61,6 +63,19 @@ def test_reactive_forces_no_unstable_heads():
     assert report.unstable_heads_count_after == 0
     assert report.rerank_frequency_before == 16
     assert report.rerank_frequency_after == 1
+
+
+def test_reactive_zeros_scalar_unstable_head_fields():
+    """Regression: reactive must zero the scalar num_unstable_heads (and
+    unstable_heads_portion), not just the list. Leaving num_unstable_heads>0
+    while unstable_heads==[] sends FlexiCache's GPU block-count assertion down
+    the wrong branch (off-by-one crash at engine init). See M2b-1b smoke."""
+    shim._current_mode = "reactive"
+    shim._current_rerank_interval = 1
+    cfg = _mock_config(unstable_heads=[[3, 5], [4, 7]], rerank_frequency=16)
+    shim._apply_config_override(cfg)
+    assert cfg.num_unstable_heads == 0
+    assert cfg.unstable_heads_portion == 0.0
 
 
 def test_reactive_respects_configured_interval():

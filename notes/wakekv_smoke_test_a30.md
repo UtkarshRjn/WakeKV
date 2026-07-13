@@ -34,24 +34,32 @@ config.num_unstable_heads = 0
 config.unstable_heads_portion = 0.0
 ```
 
-## Two follow-ups needed before the M2b-2 sweep (NOT fixed here)
+## Runner fix (this branch): `scripts/run_wakekv.py` now carries the shim
 
-1. **`scripts/run_wakekv.py` cannot carry the shim.** It installs the
-   monkey-patch, then `os.execvp`s a fresh `python` — which replaces the
-   process image and discards the in-process patch. The launched
-   benchmark therefore runs stock FlexiCache, unpatched. The docstring's
-   "execvp shares our process" comment is incorrect. Checks 2/3 here were
-   run **in-process** instead (install shim → run vLLM offline in the same
-   process, `VLLM_ENABLE_V1_MULTIPROCESSING=0` to keep engine-core
-   in-process). The runner must launch vLLM in-process (or have the child
-   install the shim itself) before the sweep will measure anything real.
+The old runner installed the monkey-patch, then `os.execvp`'d a fresh
+`python` — which replaces the process image and discards the in-process
+patch, so the launched benchmark ran **stock** FlexiCache, unpatched. (The
+docstring's "execvp shares our process" comment was wrong.)
 
-2. **Smoke-doc benchmark reference is stale.** The doc points at
-   `benchmarks/FlexiCache/Throughput/run_benchmark.py` (does not exist)
-   and diffs a `generations` field that the real `benchmark_throughput.py`
-   never emits (it outputs throughput stats only). The in-process harness
-   used here (`scratchpad/run_mode.py`) generates and compares token IDs
-   directly; fold an equivalent into the repo for M2b-2.
+Fixed by installing the shim *inside the target's interpreter*: the runner
+now execs the target through `python -m wakekv._shimmed_main`, a bootstrap
+that installs the shim (from `WAKEKV_MODE` / `WAKEKV_RERANK_INTERVAL` env
+vars) and then `runpy`'s the real target. Verified end-to-end on A30 — a
+target that does *not* self-install the shim still shows
+`unstable heads: 64 → 0` after launch through the runner, and generates
+without the block-count crash. Handles both `python script.py` and
+`python -m module` targets; rejects non-Python targets with a clear error.
+Unit-tested in `tests/test_run_wakekv.py`.
+
+## Remaining follow-up before M2b-2
+
+**Smoke-doc benchmark reference is stale.** The doc points at
+`benchmarks/FlexiCache/Throughput/run_benchmark.py` (does not exist) and
+diffs a `generations` field that the real `benchmarks/benchmark_throughput.py`
+never emits (throughput stats only). The in-process harness used for the
+smoke checks (`scratchpad/run_mode.py`) generates and compares token IDs
+directly; fold an equivalent into the repo, and point the sweep at the real
+`benchmarks/benchmark_throughput.py`, for M2b-2.
 
 ## Repro (in-process, A30)
 
