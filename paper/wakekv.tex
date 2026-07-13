@@ -419,7 +419,33 @@ under the continuous score. We report both.
 matched hardware, (ii) end-to-end throughput including controller
 overhead, (iii) quality preservation on LongBench/RULER/SCBench, and
 (iv) a head-to-head against FlexiCache's real code on their own
-protocol.
+protocol. Table~\ref{tab:m2b2} is the anticipated placeholder for the
+throughput+quality sweep --- to be populated when
+\S\ref{sec:limits} moves from simulation to real system.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lrrr}
+\toprule
+Config & Rerank interval & Gen tok/s & LongBench mean \\
+\midrule
+Stock FlexiCache & 16 (native) & \NEEDFIG & \NEEDFIG \\
+Reactive (WakeKV) & 1 & \NEEDFIG & \NEEDFIG \\
+Reactive & 2 & \NEEDFIG & --- \\
+Reactive & 4 & \NEEDFIG & --- \\
+Reactive & 8 & \NEEDFIG & --- \\
+Reactive & 16 & \NEEDFIG & --- \\
+\bottomrule
+\end{tabular}
+\caption{M2b-2 measurement sweep, Mistral-7B on A30. Placeholder; real
+numbers populated from
+\texttt{scripts/wakekv\_sweep\_table.py} output on wolverine.
+Throughput expected to trend downward with smaller rerank interval;
+quality expected to be preserved (identity-mode smoke test showed
+bit-identity with stock output).}
+\label{tab:m2b2}
+\end{table}
 
 \section*{Reproducibility}
 Source, logs, and results at \NEEDPROSE{GitHub URL after de-anonymize}.

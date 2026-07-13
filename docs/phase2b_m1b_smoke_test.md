@@ -64,38 +64,41 @@ config never actually loaded the profile — investigate before continuing.
 
 ## Check 2 — identity mode == stock
 
-Same 8-prompt LongBench-slice from M2b-0. Two runs, diff the outputs:
+Same 8-prompt LongBench-slice from M2b-0, run through the shim in
+identity mode. Output must be bit-identical to stock FlexiCache.
 
-```bash
-# A) stock FlexiCache, unchanged
-cd ~/FlexiCache
-python benchmarks/FlexiCache/Throughput/run_benchmark.py \
-    --model mistralai/Mistral-7B-Instruct-v0.2 \
-    --enable-flexicache --num-unstable-heads 64 \
-    --rerank-frequency 16 --topK-budget 64 \
-    --unstable-heads-profile-task gov_report \
-    --input-len 8000 --output-len 100 --num-prompts 8 \
-    --output stock_output.json
+**Note:** the M2b-1b smoke run on wolverine did this with an in-process
+harness (`scratchpad/run_mode.py`), not `benchmarks/benchmark_throughput.py`,
+because the throughput benchmark doesn't emit per-prompt token IDs to
+diff. A repo-friendly equivalent is on the M2b-2 followup list; the
+existing smoke verification is documented in
+`notes/wakekv_smoke_test_a30.md`.
 
-# B) same command, but through the shim in identity mode
-python $WAKEKV_ROOT/scripts/run_wakekv.py --mode identity -- \
-    python benchmarks/FlexiCache/Throughput/run_benchmark.py \
-    --model mistralai/Mistral-7B-Instruct-v0.2 \
-    --enable-flexicache --num-unstable-heads 64 \
-    --rerank-frequency 16 --topK-budget 64 \
-    --unstable-heads-profile-task gov_report \
-    --input-len 8000 --output-len 100 --num-prompts 8 \
-    --output identity_output.json
+The in-process pattern (adapt to your local paths):
 
-# Compare generated tokens
-python - <<PY
-import json
-a = json.load(open('stock_output.json'))
-b = json.load(open('identity_output.json'))
-match = sum(1 for x, y in zip(a['generations'], b['generations']) if x == y)
-print(f"{match}/{len(a['generations'])} generations match")
-PY
+```python
+# scratchpad/run_mode.py — install shim, run LLM offline, dump token IDs
+import os, sys, json
+os.environ["WAKEKV_MODE"] = sys.argv[1]         # stock|identity|reactive
+os.environ["WAKEKV_RERANK_INTERVAL"] = "1"
+
+if sys.argv[1] != "stock":
+    from wakekv import flexicache_shim
+    flexicache_shim.install(mode=sys.argv[1], rerank_interval=1)
+
+from vllm import LLM, SamplingParams
+llm = LLM(model="mistralai/Mistral-7B-Instruct-v0.2",
+          enable_flexicache=True, num_unstable_heads=64,
+          rerank_frequency=16, topK_budget=64,
+          unstable_heads_profile_task="gov_report",
+          max_model_len=8192, gpu_memory_utilization=0.90)
+
+prompts = [...]  # 8 prompts, 8k tokens each
+outs = llm.generate(prompts, SamplingParams(max_tokens=100, temperature=0.0))
+json.dump([o.outputs[0].token_ids for o in outs], open(f"{sys.argv[1]}.json", "w"))
 ```
+
+Run twice (`stock`, `identity`), then diff the two JSONs.
 
 **Expected: all generations match.** If they don't, the shim's mere
 presence is perturbing something (e.g., we're re-running ``_build`` and
@@ -122,25 +125,14 @@ Record the throughput number in ``notes/wakekv_smoke_test_a30.md``.
 
 ## Rerank-interval sweep — the actual M2b-2 headline plot
 
-Once all three checks pass, run the sweep:
+Once all three checks pass, run the M2b-2 sweep. See
+`docs/phase2b_m2_runbook.md` for the full recipe; the short version:
 
 ```bash
-for R in 1 2 4 8 16; do
-    python $WAKEKV_ROOT/scripts/run_wakekv.py --mode reactive --rerank-interval $R -- \
-        python benchmarks/FlexiCache/Throughput/run_benchmark.py \
-        --model mistralai/Mistral-7B-Instruct-v0.2 \
-        --enable-flexicache --num-unstable-heads 64 \
-        --rerank-frequency $R --topK-budget 64 \
-        --unstable-heads-profile-task gov_report \
-        --input-len 8000 --output-len 1000 --num-prompts 24 \
-        --output wakekv_rerank_${R}.json
-done
+bash scripts/wakekv_rerank_sweep.sh        # throughput at rerank ∈ {1,2,4,8,16}
+bash scripts/wakekv_longbench_check.sh     # quality at stock + reactive-r1
+python scripts/wakekv_sweep_table.py <tp_dir> --quality-dir <q_dir>
 ```
-
-Five data points. The output-len=1000 setting hits the regime where
-stock FlexiCache showed the largest speedup vs stock vLLM (1.67× on A30).
-That's where reactive residency is expected to shine — if it does, we
-have the paper's headline Table.
 
 ## What passes M2b-1b
 
