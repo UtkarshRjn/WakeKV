@@ -414,38 +414,59 @@ code.
 is thresholded, so adjacent-step Jaccard reads higher under it than
 under the continuous score. We report both.
 
-\textbf{Future work.} A follow-up on a real serving stack
-(FlexiCache/vLLM fork) will measure (i) real PCIe stall time on
-matched hardware, (ii) end-to-end throughput including controller
-overhead, (iii) quality preservation on LongBench/RULER/SCBench, and
-(iv) a head-to-head against FlexiCache's real code on their own
-protocol. Table~\ref{tab:m2b2} is the anticipated placeholder for the
-throughput+quality sweep --- to be populated when
-\S\ref{sec:limits} moves from simulation to real system.
+\textbf{Preliminary real-system throughput result.} Running the shim
+described above on the A30 against a stock-FlexiCache baseline
+(Mistral-7B-Instruct-v0.2, LEval-style 8k input / 1000 output, 24
+prompts) reactive residency \emph{beats} stock FlexiCache at every
+rerank interval, monotone in the interval (Table~\ref{tab:m2b2}).
+This contradicted our initial prediction (that reactive's
+every-step rerank cost would trail stock at low intervals) and has
+a mechanistic explanation: the shim removes FlexiCache's offline
+classification entirely, so every head runs through the fast
+sparse-decode path (0 dense heads vs 64 in stock). Part of the win
+is doing less attention work per step, not purely better memory
+management --- and the paper must say so honestly.
+
+\textbf{What this preliminary result does NOT say.} Throughput only.
+Quality on LongBench under reactive residency is a separate axis
+and remains to be measured (identity mode passed a bit-identity
+smoke test; that does not generalise). The 8B and multi-turn
+regimes where the Phase 2a simulator showed the strongest
+memory/miss wins are also not yet covered by the real system.
 
 \begin{table}[t]
 \centering
 \small
 \begin{tabular}{lrrr}
 \toprule
-Config & Rerank interval & Gen tok/s & LongBench mean \\
+Config & Rerank interval & Gen tok/s & vs stock \\
 \midrule
-Stock FlexiCache & 16 (native) & \NEEDFIG & \NEEDFIG \\
-Reactive (WakeKV) & 1 & \NEEDFIG & \NEEDFIG \\
-Reactive & 2 & \NEEDFIG & --- \\
-Reactive & 4 & \NEEDFIG & --- \\
-Reactive & 8 & \NEEDFIG & --- \\
-Reactive & 16 & \NEEDFIG & --- \\
+Stock FlexiCache & 16 (native) & 114.4 & 1.00$\times$ \\
+Reactive (WakeKV) & 1 & 153.6 & 1.34$\times$ \\
+Reactive & 2 & 193.3 & 1.69$\times$ \\
+Reactive & 4 & 226.3 & 1.98$\times$ \\
+Reactive & 8 & 254.2 & 2.22$\times$ \\
+Reactive & 16 & 266.6 & 2.33$\times$ \\
 \bottomrule
 \end{tabular}
-\caption{M2b-2 measurement sweep, Mistral-7B on A30. Placeholder; real
-numbers populated from
-\texttt{scripts/wakekv\_sweep\_table.py} output on wolverine.
-Throughput expected to trend downward with smaller rerank interval;
-quality expected to be preserved (identity-mode smoke test showed
-bit-identity with stock output).}
+\caption{M2b-2 preliminary throughput sweep on the A30
+(Mistral-7B, LEval 8k$\to$1000, 24 prompts). Reactive residency
+beats stock FlexiCache at every rerank interval; less frequent
+rerank $\Rightarrow$ less overhead, so the reactive-16 point
+maximises the throughput win. Reactive-1 is the design
+proposed in the paper. \textbf{Throughput only} --- quality under
+reactive residency is not tested here. Data from
+\texttt{notes/wakekv\_m2b2\_sweep\_a30.md}.}
 \label{tab:m2b2}
 \end{table}
+
+\textbf{Future work.} A follow-up on the same stack will measure
+(i) LongBench/RULER/SCBench quality preservation under reactive
+residency at each rerank interval, (ii) the 8B model and multi-turn
+regimes, (iii) real PCIe stall time from the fetch-on-demand path,
+(iv) a head-to-head against FlexiCache with a matched sparse-only
+configuration to isolate the memory-management contribution from
+the ``all-sparse'' contribution to the throughput win.
 
 \section*{Reproducibility}
 Source, logs, and results at \NEEDPROSE{GitHub URL after de-anonymize}.
