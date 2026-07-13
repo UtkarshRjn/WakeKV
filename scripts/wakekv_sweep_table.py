@@ -6,11 +6,18 @@ Reads the throughput JSONs written by wakekv_rerank_sweep.sh
 throughput vs rerank interval, plus each reactive point's speedup relative
 to the stock-FlexiCache baseline.
 
-Usage: python scripts/wakekv_sweep_table.py <results_dir>
+Optionally reads a companion quality directory populated by
+wakekv_longbench_check.sh (``wakekv-longbench-<label>.json``) and adds
+a per-task F1/Rouge column so quality preservation is visible next to
+throughput.
+
+Usage:
+    python scripts/wakekv_sweep_table.py <throughput_dir> [--quality-dir DIR]
 """
 
 from __future__ import annotations
 
+import argparse
 import glob
 import json
 import os
@@ -19,51 +26,110 @@ import sys
 
 
 def _label(path: str) -> str:
-    return re.sub(r"^wakekv-|\.json$", "", os.path.basename(path))
+    return re.sub(r"^wakekv-longbench-|^wakekv-|\.json$", "", os.path.basename(path))
+
+
+def _load_json_dir(directory: str, pattern: str) -> dict[str, dict]:
+    files = sorted(glob.glob(os.path.join(directory, pattern)))
+    out: dict[str, dict] = {}
+    for f in files:
+        try:
+            out[_label(f)] = json.load(open(f))
+        except (json.JSONDecodeError, OSError):
+            continue
+    return out
+
+
+def _quality_summary(data: dict) -> tuple[float | None, dict[str, float]]:
+    """LongBench JSONs come in a few shapes across FlexiCache versions.
+    Try common ones. Returns (mean_score, {task: score})."""
+    per_task: dict[str, float] = {}
+    if "per_task" in data and isinstance(data["per_task"], dict):
+        for task, v in data["per_task"].items():
+            score = v.get("f1") if isinstance(v, dict) else v
+            if isinstance(score, (int, float)):
+                per_task[task] = float(score)
+    else:
+        for key, v in data.items():
+            if key in ("elapsed_time", "output_tokens_per_second", "config", "model"):
+                continue
+            if isinstance(v, (int, float)):
+                per_task[key] = float(v)
+            elif isinstance(v, dict) and "f1" in v:
+                per_task[key] = float(v["f1"])
+    mean = sum(per_task.values()) / len(per_task) if per_task else None
+    return mean, per_task
+
+
+def _interval_of(label: str) -> int:
+    m = re.search(r"reactive-r(\d+)", label)
+    return int(m.group(1)) if m else -1
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 2:
-        print("usage: wakekv_sweep_table.py <results_dir>", file=sys.stderr)
-        return 2
-    results_dir = argv[1]
-    files = sorted(glob.glob(os.path.join(results_dir, "wakekv-*.json")))
-    if not files:
-        print(f"no wakekv-*.json under {results_dir}", file=sys.stderr)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("throughput_dir")
+    ap.add_argument("--quality-dir", default=None,
+                    help="directory with wakekv-longbench-*.json to add a "
+                         "quality column")
+    args = ap.parse_args(argv[1:])
+
+    tp = _load_json_dir(args.throughput_dir, "wakekv-*.json")
+    if not tp:
+        print(f"no wakekv-*.json under {args.throughput_dir}", file=sys.stderr)
         return 1
 
-    rows = {}
-    for f in files:
-        try:
-            d = json.load(open(f))
-        except (json.JSONDecodeError, OSError):
-            continue
-        rows[_label(f)] = d
+    quality = {}
+    if args.quality_dir:
+        raw = _load_json_dir(args.quality_dir, "wakekv-longbench-*.json")
+        for k, v in raw.items():
+            quality[k] = _quality_summary(v)
 
-    baseline = rows.get("stock")
-    base_tps = baseline.get("output_tokens_per_second") if baseline else None
+    base = tp.get("stock")
+    base_tps = base.get("output_tokens_per_second") if base else None
+    order = sorted(tp, key=lambda l: (l != "stock", _interval_of(l)))
 
-    def interval_of(label: str) -> float:
-        m = re.search(r"reactive-r(\d+)", label)
-        return int(m.group(1)) if m else -1
-
-    order = sorted(rows, key=lambda l: (l != "stock", interval_of(l)))
-
-    print(f"\n# M2b-2 — WakeKV reactive rerank-interval sweep ({results_dir})\n")
-    print("| config | rerank interval | gen tok/s | elapsed (s) | vs stock |")
-    print("|---|---|---:|---:|---:|")
+    print(f"\n# M2b-2 — WakeKV reactive sweep ({args.throughput_dir})\n")
+    header = "| config | rerank interval | gen tok/s | elapsed (s) | vs stock |"
+    sep = "|---|---|---:|---:|---:|"
+    if args.quality_dir:
+        header += " LongBench mean |"
+        sep += "---:|"
+    print(header)
+    print(sep)
     for label in order:
-        d = rows[label]
+        d = tp[label]
         tps = d.get("output_tokens_per_second")
         elapsed = d.get("elapsed_time")
         if label == "stock":
             interval, vs = "16 (native)", "1.00× (baseline)"
         else:
-            interval = str(interval_of(label))
+            interval = str(_interval_of(label))
             vs = f"{tps / base_tps:.2f}×" if (base_tps and tps) else "—"
         tps_s = f"{tps:.1f}" if tps is not None else "—"
         el_s = f"{elapsed:.1f}" if elapsed is not None else "—"
-        print(f"| {label} | {interval} | {tps_s} | {el_s} | {vs} |")
+        row = f"| {label} | {interval} | {tps_s} | {el_s} | {vs} |"
+        if args.quality_dir:
+            q = quality.get(label)
+            row += f" {q[0]:.2f} |" if (q and q[0] is not None) else " — |"
+        print(row)
+
+    if args.quality_dir and quality:
+        print("\n## Per-task LongBench\n")
+        # union of all tasks across configs, preserving insertion order
+        tasks: list[str] = []
+        for _, per in quality.values():
+            for t in per:
+                if t not in tasks:
+                    tasks.append(t)
+        print("| config | " + " | ".join(tasks) + " |")
+        print("|---" * (len(tasks) + 1) + "|")
+        for label in order:
+            q = quality.get(label)
+            per = q[1] if q else {}
+            cells = [f"{per[t]:.2f}" if t in per else "—" for t in tasks]
+            print(f"| {label} | " + " | ".join(cells) + " |")
+
     print()
     return 0
 
