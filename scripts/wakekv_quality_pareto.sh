@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# M2b-2 quality PARETO: LongBench accuracy for stock + reactive at every
+# rerank interval, so the quality column sits next to the full throughput
+# sweep (wakekv_rerank_sweep.sh).
+#
+# Each reactive interval is scored in ISOLATION (its own eval pass) because
+# run_benchmark.py derives the prediction filename from CLI args, so reactive
+# at R=16 would otherwise collide with the stock (rerank=16) predictions.
+# Idempotent: a config whose wakekv-longbench-<label>.json already exists is
+# skipped, so the stock + reactive-r1 results from the earlier run are reused
+# and a teardown just resumes.
+#
+# Usage:  bash scripts/wakekv_quality_pareto.sh
+# Env:    INTERVALS (default "1 2 4 8 16"), LONGBENCH_TASKS, SAMPLES_PER_TASK,
+#         BATCH_SIZE, WAKEKV_MAX_MODEL_LEN, WAKEKV_ROOT, FLEXI_ROOT
+set -euo pipefail
+
+WAKEKV_ROOT="${WAKEKV_ROOT:-/home/utranjan/dynamic-head-kv}"
+FLEXI_ROOT="${FLEXI_ROOT:-/home/utranjan/FlexiCache}"
+INTERVALS="${INTERVALS:-1 2 4 8 16}"
+LONGBENCH_TASKS="${LONGBENCH_TASKS:-qasper 2wikimqa triviaqa multi_news}"
+SAMPLES_PER_TASK="${SAMPLES_PER_TASK:-30}"
+BATCH_SIZE="${BATCH_SIZE:-4}"
+export WAKEKV_MAX_MODEL_LEN="${WAKEKV_MAX_MODEL_LEN:-8192}"
+
+source /opt/conda/etc/profile.d/conda.sh
+conda activate FlexiCache
+export PYTHONPATH="$WAKEKV_ROOT:${PYTHONPATH:-}"
+export VLLM_USE_V1=1 VLLM_ATTENTION_BACKEND=TRITON_ATTN_VLLM_V1
+export TORCH_CUDA_ARCH_LIST="8.0" VLLM_ENABLE_V1_MULTIPROCESSING=0
+
+MODEL="Mistral-7B-Instruct-v0.2"
+BENCH_DIR="$FLEXI_ROOT/benchmarks/FlexiCache/Language_Modelling/LongBench"
+OUT_DIR="$BENCH_DIR/Results_M2b2"
+mkdir -p "$OUT_DIR"
+cd "$BENCH_DIR"
+
+# Score whatever single config sits in results/pred.json into a label JSON.
+reshape_one() {   # $1 = cfg stem, $2 = out label
+    python - "$MODEL" "$1" "$OUT_DIR/$2" <<'PY'
+import json, os, sys
+model, cfg, outpath = sys.argv[1], sys.argv[2], sys.argv[3]
+scores = json.load(open("results/pred.json"))[model]
+per = {t: c[cfg] for t, c in scores.items() if cfg in c}
+if per:
+    json.dump({"per_task": per}, open(outpath, "w"), indent=2)
+    print("wrote", os.path.basename(outpath), per)
+else:
+    print("NO SCORES for", cfg); sys.exit(1)
+PY
+}
+
+run_isolated() {   # $1 = rerank, $2 = mode(off|reactive), $3 = out label
+    local R="$1" mode="$2" label="$3"
+    if [ -s "$OUT_DIR/$label" ]; then
+        echo ">>> SKIP (present): $label"; return 0
+    fi
+    echo "==== $(date) $label : rerank=$R mode=$mode ===="
+    rm -rf pred results 2>/dev/null || true
+    local args=(run_benchmark.py --model "$MODEL" --dataset $LONGBENCH_TASKS
+                --batch_size "$BATCH_SIZE" --limit "$SAMPLES_PER_TASK"
+                --flexicache --num_unstable_heads 64 --rerank_frequency "$R"
+                --topK_budget 64 --unstable_heads_profile_task gov_report)
+    if [ "$mode" = "off" ]; then
+        python "${args[@]}" || { echo "!!! GEN FAILED $label"; return 0; }
+    else
+        python "$WAKEKV_ROOT/scripts/run_wakekv.py" --mode reactive --rerank-interval "$R" -- \
+            python "${args[@]}" || { echo "!!! GEN FAILED $label"; return 0; }
+    fi
+    python eval.py
+    reshape_one "flexicache-64-unstable-${R}-rerank-64-topK" "$label" || echo "!!! RESHAPE FAILED $label"
+}
+
+# stock + reactive-r1 already exist from wakekv_longbench_check.sh (skipped).
+run_isolated 16 off      "wakekv-longbench-stock.json"
+for R in $INTERVALS; do
+    run_isolated "$R" reactive "wakekv-longbench-reactive-r${R}.json"
+done
+
+echo "==== quality pareto done $(date) ===="
+python "$WAKEKV_ROOT/scripts/wakekv_sweep_table.py" \
+       "$FLEXI_ROOT/benchmarks/FlexiCache/Throughput/Results_M2b2" \
+       --quality-dir "$OUT_DIR" || true
