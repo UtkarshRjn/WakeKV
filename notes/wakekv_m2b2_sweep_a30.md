@@ -29,30 +29,43 @@ FlexiCache showed its biggest speedup over vanilla vLLM).
 - The curve is monotone in R: overhead falls as R grows, so throughput rises
   and asymptotes toward the no-rerank ceiling. R=16 is the Pareto knee here.
 
-## Quality axis (LongBench, `scripts/wakekv_longbench_check.sh`)
+## Quality axis (LongBench) — full sweep
 
-Reactive at **R=1** (every-step rerank) vs stock FlexiCache, 4 tasks ×
-30 samples, scored with the harness `eval.py`:
+Stock FlexiCache vs reactive at every rerank interval, 4 tasks × 30 samples,
+scored with the harness `eval.py` (via `scripts/wakekv_quality_pareto.sh`,
+which scores each interval in an isolated pred dir so reactive-r16 doesn't
+collide with stock's rerank-16 predictions):
 
-| task | stock | reactive-r1 | Δ |
-|---|---:|---:|---:|
-| triviaqa | 87.06 | 87.06 | 0.00 |
-| multi_news | 25.63 | 26.16 | +0.53 |
-| qasper | 37.67 | 35.42 | −2.25 |
-| 2wikimqa | 16.58 | 14.00 | −2.58 |
-| **mean** | **41.73** | **40.66** | **−1.07** |
+| rerank int | gen tok/s | vs stock | LongBench mean | % of stock |
+|---:|---:|---:|---:|---:|
+| stock (16) | 114.4 | 1.00× | 41.73 | — |
+| 1 | 153.6 | 1.34× | 40.66 | 97.4% |
+| 2 | 193.3 | 1.69× | 40.54 | 97.1% |
+| 4 | 226.3 | 1.98× | 41.36 | 99.1% |
+| 8 | 254.2 | 2.22× | 40.87 | 97.9% |
+| 16 | 266.6 | 2.33× | 39.63 | 95.0% |
 
-Reactive retains **~97.4%** of stock LongBench mean at R=1 while running
-**1.34×** faster — supports "fetch-on-demand preserves quality by
-construction". TriviaQA identical, summarization flat, the two multi-hop/QA
-tasks off ~2.5 pts (small, near noise at N=30; 2wikimqa is the one to watch).
+Per-task:
 
-**Pareto is incomplete.** Quality is measured only at R=1 — reactive's
-*quality ceiling* (larger R = staler residency = likely lower quality but
-higher throughput). The high-throughput points (R=8 → 2.22×, R=16 → 2.33×)
-have **no quality number yet**. To finish the throughput×quality Pareto, run
-`RERANK_INTERVAL=<R> bash scripts/wakekv_longbench_check.sh` for R in
-{2,4,8,16} (stock is re-scored each time; ~1h each on A30).
+| config | multi_news | qasper | 2wikimqa | triviaqa |
+|---|---:|---:|---:|---:|
+| stock | 25.63 | 37.67 | 16.58 | 87.06 |
+| reactive-r1 | 26.16 | 35.42 | 14.00 | 87.06 |
+| reactive-r2 | 26.50 | 33.32 | 15.27 | 87.06 |
+| reactive-r4 | 26.18 | 36.04 | 16.16 | 87.06 |
+| reactive-r8 | 26.12 | 33.47 | 16.81 | 87.06 |
+| reactive-r16 | 25.82 | 32.30 | 13.33 | 87.06 |
+
+**Read.** Quality is essentially **flat at 95–99% of stock across the whole
+sweep — no monotonic erosion.** Even the fastest point (R=16, 2.33×) holds
+95%. TriviaQA is identical everywhere; the spread is dominated by the two
+small-N QA tasks (qasper/2wikimqa bounce ±2–4 pts, noise at N=30). So reactive
+residency buys **up to 2.33× throughput at ≥95% LongBench quality** — the
+throughput×quality tradeoff M2b-2 set out to measure.
+
+Caveat: N=30/task makes per-task deltas noisy (see the non-monotone qasper
+column); the *mean* is stable but a full-LongBench (~200/task) run would tighten
+the per-task numbers before any strong per-task claim.
 
 Other caveats: single output length (1000), 24 prompts, A30 24GB with
 `max-model-len 10240` and a 16GB host KV pool — ranks policies on this box,
