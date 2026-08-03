@@ -101,9 +101,9 @@ model scales, workloads, and hardware is future work.
 
 \textbf{Models.} Qwen2.5-3B-Instruct (36 layers $\times$ 16 heads = 576
 attention heads), DeepSeek-R1-Distill-Qwen-1.5B (28 layers $\times$ 12
-heads = 336), and DeepSeek-R1-Distill-Llama-8B (32 layers $\times$ 8 KV
-heads = 256, bf16 on Ampere). Two hardware epochs: measurements on
-1.5B/3B were taken on Turing (RTX~2080~Ti, 11~GB, fp16 or float32
+heads = 336), and DeepSeek-R1-Distill-Llama-8B (32 layers $\times$ 32
+heads = 1024, GQA with 8 KV-groups, bf16 on Ampere). Two hardware
+epochs: measurements on 1.5B/3B were taken on Turing (RTX~2080~Ti, 11~GB, fp16 or float32
 where fp16 overflows); the 8B measurements were taken on Ampere
 (A30, 24~GB, bf16, PCIe~Gen4).
 
