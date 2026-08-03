@@ -8,7 +8,7 @@ promote them back — instead of evicting and losing their history.**
 
 ---
 
-## 0. STATUS (updated 2026-07-10)
+## 0. STATUS (updated 2026-08-03)
 
 The plan below was drafted around a **proactive** design (predict wake-ups,
 prefetch ahead of need). Phases 0–1 are now done and **changed the design**:
@@ -19,42 +19,60 @@ stall). Read this section first; where the older sections below still say
 
 **Done:**
 - **Phase 0 — G0 PASS.** Heads churn during decoding on our models
-  (Qwen2.5-3B, R1-Distill-1.5B): 63–85% of heads shift at least once,
-  adjacent-step Jaccard ~0.5 (continuous score), strongest on long CoT.
-  Premise confirmed. → `notes/phase01_results.md`.
+  (Qwen2.5-3B, R1-Distill-1.5B, confirmed at 8B on R1-Distill-Llama-8B):
+  63–85% of heads shift at least once, adjacent-step Jaccard ~0.5
+  (continuous score), strongest on long CoT. Premise confirmed. →
+  `notes/phase01_results.md`.
 - **Phase 1 — G1 resolved to REACTIVE.** Cheap per-head wake-up signals
   can't predict well enough to prefetch (deployable causal-z-score:
   precision 0.06–0.20, recall 0.41–0.72). Wake-ups *are* temporally bursty
   (CoT mean z +9.7 vs. null) but not tightly/detectably enough for a coarse
   boundary trigger either. **Both proactive routes ruled out** → build
   reactive. The prediction negative + burstiness become supporting analysis.
+- **Phase 2a — reactive-residency simulator.** (`wakekv/residency.py`)
+  Reactive beats frozen (FlexiCache-style) at matched memory in every
+  regime and scale tested — CoT, multi-turn, 1.5B/3B/8B all agree, roughly
+  half the miss rate. C2 supported *in principle*.
+- **Phase 2b — shim + preliminary real-system numbers (M2b-1a/1b/M2b-2).**
+  `wakekv/flexicache_shim.py` turns FlexiCache into WakeKV reactive via two
+  config overrides; verified correctness-preserving (M2b-1b, `identity`
+  mode). On an A30 (Mistral-7B, LEval 8k→1000, 24 prompts), reactive beats
+  stock FlexiCache's throughput at every rerank interval (1.34–2.33×) while
+  holding 95–99% of LongBench quality, no monotonic erosion. →
+  `notes/wakekv_m2b2_sweep_a30.md`, paper §8/Table 4.
 
-**Now (Phase 2a — this branch, PR #3):** a **reactive-residency simulator**
-(`wakekv/residency.py`) — a cheap, no-GPU go/no-go gate that replays logged
-attention through Full / Frozen / Reactive policies and asks: at matched
-memory, does reactive miss less than frozen in shifting regimes (C2)?
-
-**Not yet started:** Phase 2b (real vLLM/FlexiCache system) and Phase 3
-(real eval). These produce the paper's headline numbers and need a
-≥24 GB GPU.
+**In progress / not yet started:**
+- **Phase 2b remainder.** Real PCIe stall time is still only inferred
+  through end-to-end throughput, not measured directly (M2c). Only one
+  model (Mistral-7B) and one input/output regime have been tested — no 8B,
+  no multi-turn. The matched sparse-only baseline ablation (isolating
+  "less attention work per step" from "better memory management" in the
+  throughput win) hasn't been run.
+- **Phase 3 (real eval) — not started.** No baseline reimplementations
+  (ReasonAlloc, FullKV, SnapKV, uniform R-KV), no floor ablation (μ→0), no
+  evict-vs-offload head-to-head (C3), no full LongBench/RULER/SCBench
+  harness beyond the narrow M2b-2 eval. This is where C3 and C5 get
+  resolved and where the paper's final headline numbers come from.
 
 ### Evidence ladder — what each stage establishes
 
 | Stage | Establishes | Status |
 |---|---|---|
-| Phase 0 | Premise: heads churn during decoding | ✅ done (G0 pass) |
+| Phase 0 | Premise: heads churn during decoding | ✅ done (G0 pass, incl. 8B) |
 | Phase 1 | Cheap prediction fails → reactive design | ✅ done (G1 → reactive) |
-| **Phase 2a: simulator** | Reactive beats frozen *in principle*, on logged attention, at page granularity | ⏳ this branch |
-| Phase 2b: real system | Measured memory saved, PCIe **stall time**, throughput in vLLM | ❌ needs ≥24 GB GPU |
-| Phase 3: evaluation | 7–8B models, LongBench/RULER/SCBench **quality**, real baselines | ❌ |
+| Phase 2a: simulator | Reactive beats frozen *in principle*, on logged attention, at page granularity | ✅ done |
+| Phase 2b: real system | Measured memory saved, PCIe **stall time**, throughput in vLLM | ⏳ preliminary (M2b-2 done; stall time, scale, sparse-only baseline remain) |
+| Phase 3: evaluation | 7–8B models, LongBench/RULER/SCBench **quality**, real baselines | ❌ not started |
 
 **The simulator is a gate, not a result.** It counts *misses*, not stall
 *time*; works at page granularity approximated from top-k, not the full KV
 cache; measures no *quality* (assumes reactive preserves accuracy by
 fetching on demand); compares against a FlexiCache-*style* policy, not their
-code; scout-scale models. A positive result becomes one *figure* (the
-idealized tradeoff) and earns the right to spend real GPU time — the
-headline numbers only exist after Phase 2b + Phase 3.
+code; scout-scale models. Phase 2b's M2b-2 sweep has since supplied a first
+real-system throughput+quality reading that confirms the direction — but
+it's narrow (one model, one regime, one A30) and explicitly preliminary;
+the full headline numbers — matched baselines, broader scale, measured
+stall time — still depend on the rest of Phase 2b plus Phase 3.
 
 ---
 
