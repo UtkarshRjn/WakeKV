@@ -55,6 +55,38 @@ common_bench_args() {
        --unstable_heads_profile_task gov_report --enable-flexicache
 }
 
+# FullKV reference point: no FlexiCache at all (dense attention, full
+# cache, no sparse decode). Omits --enable-flexicache and every
+# FlexiCache-only flag (rerank-frequency, topK-budget, num-unstable-heads,
+# unstable_heads_profile_task), which only mean something once FlexiCache
+# is on. This is the ceiling row Table 4 doesn't have yet: how much
+# throughput compression buys back, not just how the compressed policies
+# compare to each other.
+common_bench_args_fullkv() {
+  local outfile="$1"
+  echo --dataset-name leval --dataset-path "$DATASET" \
+       --model "$MODEL" \
+       --gpu-memory-utilization 0.90 --tensor-parallel-size 1 --max-model-len 10240 \
+       --no-enable-prefix-caching --disable-cascade-attn \
+       --max-num-batched-tokens 8192 --max-num-seqs 16 \
+       --input-len "$INPUT_LEN" --output-len "$OUTPUT_LEN" --num-prompts "$NUM_PROMPTS" \
+       --random-range-ratio-input 0.3333 --random-range-ratio-output 1 \
+       --seed 42 --output-json "$outfile"
+}
+
+run_fullkv() {
+  local outfile="$OUT_DIR/wakekv-fullkv.json"
+  if [ -s "$outfile" ]; then
+    echo ">>> SKIP (done): $outfile"
+    return 0
+  fi
+  echo "=================================================================="
+  echo ">>> $(date) | label=fullkv mode=dense (no FlexiCache) | in=$INPUT_LEN out=$OUTPUT_LEN n=$NUM_PROMPTS"
+  echo "=================================================================="
+  python "$BENCH" $(common_bench_args_fullkv "$outfile") \
+    || echo "!!! RUN FAILED (fullkv)"
+}
+
 run_one() {
   local label="$1" mode="$2" rerank="$3"
   local outfile="$OUT_DIR/wakekv-${label}.json"
@@ -75,6 +107,9 @@ run_one() {
       || echo "!!! RUN FAILED ($label)"
   fi
 }
+
+# Reference ceiling: no compression at all (dense attention, full cache).
+run_fullkv
 
 # Baseline: stock FlexiCache (64 unstable heads, native rerank freq 16).
 run_one "stock" off 16

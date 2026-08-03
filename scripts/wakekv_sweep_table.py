@@ -87,7 +87,9 @@ def main(argv: list[str]) -> int:
 
     base = tp.get("stock")
     base_tps = base.get("output_tokens_per_second") if base else None
-    order = sorted(tp, key=lambda l: (l != "stock", _interval_of(l)))
+    # fullkv (no compression, dense attention) sorts first as the ceiling
+    # reference; stock (FlexiCache baseline) next; reactive-r* by interval.
+    order = sorted(tp, key=lambda l: (l != "fullkv", l != "stock", _interval_of(l)))
 
     print(f"\n# M2b-2 — WakeKV reactive sweep ({args.throughput_dir})\n")
     header = "| config | rerank interval | gen tok/s | elapsed (s) | vs stock |"
@@ -101,7 +103,10 @@ def main(argv: list[str]) -> int:
         d = tp[label]
         tps = d.get("output_tokens_per_second")
         elapsed = d.get("elapsed_time")
-        if label == "stock":
+        if label == "fullkv":
+            interval = "n/a (dense)"
+            vs = f"{tps / base_tps:.2f}×" if (base_tps and tps) else "—"
+        elif label == "stock":
             interval, vs = "16 (native)", "1.00× (baseline)"
         else:
             interval = str(_interval_of(label))
