@@ -32,7 +32,13 @@ stall). Read this section first; where the older sections below still say
 - **Phase 2a — reactive-residency simulator.** (`wakekv/residency.py`)
   Reactive beats frozen (FlexiCache-style) at matched memory in every
   regime and scale tested — CoT, multi-turn, 1.5B/3B/8B all agree, roughly
-  half the miss rate. C2 supported *in principle*.
+  half the miss rate. C2 supported *in principle*. The simulator also now
+  models destructive eviction (`simulate_evict`, ReasonAlloc-style) at the
+  *same* matched budget as reactive — no interpolation needed, since both
+  share the identical LRU eviction schedule and only diverge in what
+  happens to a page after demotion. This gives a first, simulator-level C3
+  read (reversible offload beats destructive eviction in principle) ahead
+  of the real-system head-to-head in Phase 3.
 - **Phase 2b — shim + preliminary real-system numbers (M2b-1a/1b/M2b-2).**
   `wakekv/flexicache_shim.py` turns FlexiCache into WakeKV reactive via two
   config overrides; verified correctness-preserving (M2b-1b, `identity`
@@ -47,12 +53,21 @@ stall). Read this section first; where the older sections below still say
   model (Mistral-7B) and one input/output regime have been tested — no 8B,
   no multi-turn. The matched sparse-only baseline ablation (isolating
   "less attention work per step" from "better memory management" in the
-  throughput win) hasn't been run.
+  throughput win) has a first reading at native rerank cadence ($R{=}16$,
+  reusing existing sweep rows — no new run): dropping from 64 dense heads
+  to 0 more than doubles throughput (2.33×) for a 5-point LongBench cost,
+  so sparsity alone already accounts for most of the throughput headline
+  and essentially all of the quality cost. →
+  `notes/wakekv_m2b2_sweep_a30.md`. Still missing: the complementary cell
+  (64 dense heads reranked every step) that would isolate
+  rerank-frequency's own contribution independent of dense-head count.
 - **Phase 3 (real eval) — not started.** No baseline reimplementations
   (ReasonAlloc, FullKV, SnapKV, uniform R-KV), no floor ablation (μ→0), no
-  evict-vs-offload head-to-head (C3), no full LongBench/RULER/SCBench
-  harness beyond the narrow M2b-2 eval. This is where C3 and C5 get
-  resolved and where the paper's final headline numbers come from.
+  *real-system* evict-vs-offload head-to-head (C3 currently has a
+  simulator-level reading only — see Phase 2a above), no full
+  LongBench/RULER/SCBench harness beyond the narrow M2b-2 eval. This is
+  where C3 and C5 get resolved on real systems and where the paper's
+  final headline numbers come from.
 
 ### Evidence ladder — what each stage establishes
 
@@ -60,8 +75,8 @@ stall). Read this section first; where the older sections below still say
 |---|---|---|
 | Phase 0 | Premise: heads churn during decoding | ✅ done (G0 pass, incl. 8B) |
 | Phase 1 | Cheap prediction fails → reactive design | ✅ done (G1 → reactive) |
-| Phase 2a: simulator | Reactive beats frozen *in principle*, on logged attention, at page granularity | ✅ done |
-| Phase 2b: real system | Measured memory saved, PCIe **stall time**, throughput in vLLM | ⏳ preliminary (M2b-2 done; stall time, scale, sparse-only baseline remain) |
+| Phase 2a: simulator | Reactive beats frozen *in principle* (C2) and beats destructive eviction *in principle* (C3), on logged attention, at page granularity | ✅ done |
+| Phase 2b: real system | Measured memory saved, PCIe **stall time**, throughput in vLLM | ⏳ preliminary (M2b-2 done incl. first sparse-only reading; stall time, scale, real-system C3, full sparse×rerank ablation remain) |
 | Phase 3: evaluation | 7–8B models, LongBench/RULER/SCBench **quality**, real baselines | ❌ not started |
 
 **The simulator is a gate, not a result.** It counts *misses*, not stall
