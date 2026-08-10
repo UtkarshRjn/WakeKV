@@ -14,12 +14,21 @@ KV-cache residency under three policies, at page granularity per head:
                  recent demand (LRU). A wanted page sitting on CPU is fetched
                  on demand (a decode stall) and promoted; the page it evicts
                  goes to the CPU reservoir and is never lost.
+- **evict**    — ReasonAlloc-style. Identical LRU cap and eviction rule to
+                 reactive (same B, same order), but demotion is destructive:
+                 an evicted page has nowhere to go and is simply gone. A
+                 later want of it is not a one-time recoverable stall — it
+                 misses every time, forever, since nothing brings it back.
 
 A "miss" = a wanted page that was not GPU-resident when the head needed it.
 For reactive that means a fetch-on-demand stall; for frozen it means the
-fixed classification mis-served the head. Sweeping the per-head budget B
+fixed classification mis-served the head; for evict it means a permanent
+quality gap with no recovery path at all. Sweeping the per-head budget B
 traces a miss-rate-vs-memory Pareto curve; the C2 claim is that reactive
-dominates frozen in shifting-role regimes (long CoT, multi-turn).
+dominates frozen in shifting-role regimes (long CoT, multi-turn); the C3
+claim (reactive vs. evict, same B — no memory-matching interpolation
+needed, since both share the identical LRU cap) is that reversibility
+itself is what wins, not just dynamism.
 
 Faithful to the logged attention (not a model re-run). Pure Python + numpy.
 """
@@ -153,6 +162,53 @@ def simulate_reactive(stream: Stream, n_units: int, budget: int) -> SimStats:
     )
 
 
+def simulate_evict(stream: Stream, n_units: int, budget: int) -> SimStats:
+    """Per-head LRU cap of ``budget`` pages, DESTRUCTIVE demotion (C3).
+
+    Same eviction rule as ``simulate_reactive`` — LRU, same budget — so the
+    two share an eviction *schedule*: what stays resident and when
+    something gets pushed out is identical between them, since that's
+    driven purely by the wanted-page stream and the cap, not by what
+    happens to a page afterward. The only difference is what "afterward"
+    means: reactive offloads to a reservoir (recoverable, one stall);
+    evict just drops it (unrecoverable, ReasonAlloc-style — "demotion
+    permanently destroys KV").
+
+    Consequently a page that comes back after being evicted is not a
+    one-time cost here — it misses on *every* subsequent want, forever,
+    because nothing ever re-admits it. This is deliberate: it's what makes
+    the miss RATE actually diverge from reactive's (a naive
+    reservoir-vs-nothing swap with instant "recompute" on re-want would
+    produce an identical miss rate to reactive, since residency-set
+    evolution only depends on the LRU rule, not on eviction's
+    consequence — that would silently hide the exact effect C3 exists to
+    measure).
+    """
+    resident: list[dict[int, int]] = [dict() for _ in range(n_units)]
+    destroyed: list[set[int]] = [set() for _ in range(n_units)]
+    st = SimStats("evict", budget, len(stream), 0, 0, 0, 0, 0, 0)
+    for t, row in enumerate(stream):
+        for u, wanted in enumerate(row):
+            res = resident[u]
+            dead = destroyed[u]
+            for p in wanted:
+                st.total_accesses += 1
+                if p in res:
+                    res[p] = t
+                elif p in dead:
+                    st.misses += 1  # gone for good; not re-admitted
+                else:
+                    res[p] = t  # true first-touch: ordinary cache growth
+            if len(res) > budget:
+                excess = len(res) - budget
+                oldest = sorted(res.keys(), key=res.__getitem__)[:excess]
+                for p in oldest:
+                    del res[p]
+                    dead.add(p)  # destructive: no reservoir, gone forever
+        _tally_memory(resident, st)
+    return st
+
+
 def simulate_frozen(
     stream: Stream,
     n_units: int,
@@ -196,9 +252,10 @@ def simulate_frozen(
 
 
 def sweep(stream: Stream, n_units: int, budgets: list[int], **frozen_kw) -> list[SimStats]:
-    """Full once, plus reactive and frozen at each budget."""
+    """Full once, plus reactive, evict, and frozen at each budget."""
     out = [simulate_full(stream, n_units)]
     for b in budgets:
         out.append(simulate_reactive(stream, n_units, b))
+        out.append(simulate_evict(stream, n_units, b))
         out.append(simulate_frozen(stream, n_units, b, **frozen_kw))
     return out

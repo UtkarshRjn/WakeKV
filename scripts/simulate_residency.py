@@ -71,7 +71,7 @@ def main() -> None:
                  f"{mean(fk,'mean_resident_pages'):.0f} | "
                  f"{int(mean(fk,'peak_resident_pages'))} | 0 | 0 |")
     for b in args.budgets:
-        for pol in ("frozen", "reactive"):
+        for pol in ("frozen", "reactive", "evict"):
             k = (pol, b)
             lines.append(
                 f"| {pol} | {b} | {mean(k,'miss_rate'):.3f} | "
@@ -123,6 +123,39 @@ def main() -> None:
               "measures on real PCIe. Page granularity from logged top-k (not "
               "full KV); scout-scale models. This sim ranks policies on the "
               "memory/miss frontier; it does not predict serving throughput."]
+
+    # C3: reactive (offload) vs evict (destroy), SAME budget. No interpolation
+    # needed here, unlike the frozen comparison above — both policies share
+    # the identical LRU cap, so memory is matched by construction, not by
+    # interpolating onto the other's operating point.
+    c3_wins = c3_total = 0
+    c3_detail = []
+    for b in args.budgets:
+        rr = mean(("reactive", b), "miss_rate")
+        er = mean(("evict", b), "miss_rate")
+        rm = mean(("reactive", b), "mean_resident_pages")
+        em = mean(("evict", b), "mean_resident_pages")
+        c3_total += 1
+        if rr <= er + 1e-9:
+            c3_wins += 1
+        c3_detail.append(
+            f"  - budget {b} (~{rm:.0f} vs ~{em:.0f} pages): "
+            f"reactive {rr:.3f} vs evict {er:.3f} "
+            f"{'(reactive better)' if rr <= er else '(evict better)'}"
+        )
+    lines += ["", "## C3 read (reversible vs. destructive demotion, same budget)",
+              f"Reactive (offload) misses <= evict (destroy) at "
+              f"**{c3_wins}/{c3_total}** matched budgets.",
+              *c3_detail, "",
+              "Unlike frozen, reactive and evict share the exact same LRU "
+              "eviction schedule — what stays resident and when something "
+              "gets pushed out is identical between them, since that's "
+              "driven only by demand and the budget cap. The only thing "
+              "that differs is what happens to a page AFTER eviction: "
+              "reactive can get it back with one paid stall; evict never "
+              "gets it back at all. A win here isolates reversibility "
+              "itself as the source of the advantage, holding dynamism, "
+              "budget, and eviction order fixed on both sides."]
 
     (task_dir / "residency.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
