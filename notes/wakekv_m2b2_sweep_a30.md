@@ -71,6 +71,40 @@ Other caveats: single output length (1000), 24 prompts, A30 24GB with
 `max-model-len 10240` and a 16GB host KV pool — ranks policies on this box,
 does not predict absolute serving numbers. Small N → some noise.
 
+## Sparse-only ablation (isolating head-sparsity from rerank frequency)
+
+The R=1 headline (1.34×, 97.4%) changes two things vs. stock at once: 0
+dense heads instead of 64, *and* rerank every step instead of every 16.
+Holding rerank interval fixed at 16 on both sides isolates the one
+variable that's actually different at that cadence — dense head count:
+
+| config | rerank interval | dense heads | gen tok/s | vs stock | LongBench % of stock |
+|---|---:|---:|---:|---:|---:|
+| stock (FlexiCache) | 16 | 64 | 114.4 | 1.00× | 100.0% |
+| reactive-r16 | 16 | 0 | 266.6 | 2.33× | 95.0% |
+
+No new run needed — both rows are copied straight from the Throughput and
+Quality tables above (R=16 only). This is the sparse-only reading the
+paper's Limitations section flags as still needed.
+
+**Read.** At matched rerank frequency, dropping from 64 dense heads to 0
+more than doubles throughput (2.33×) for a 5-point LongBench cost — a
+real, first-order effect from sparsity alone, with rerank cadence held
+fixed. That also means the R=1 design point isn't a "cleaner" comparison
+than R=16 — it's a *different* mix of the same two confounded variables
+(0 dense heads *and* rerank=1), not an isolation of either one. This table
+shows sparsity alone already accounts for most of the throughput headline
+and essentially all of the quality cost.
+
+Caveat: this isolates dense-head-count, not rerank-frequency's own
+contribution. Of the full 2×2 (dense-head-count × rerank-interval), three
+corners already exist in the sweep above — stock (64 dense, R=16), this
+table's reactive-r16 (0 dense, R=16), and reactive-r1 (0 dense, R=1) — but
+the fourth, "64 dense heads at R=1" (stock's classification, reranked
+every step), has never been run. That's the one cell that would let
+rerank-frequency's own contribution be measured independent of the
+dense-head-count effect this table isolates.
+
 ## Reproduce
 
 ```bash
