@@ -3,6 +3,7 @@ import pytest
 
 from wakekv.residency import (
     classify_unstable,
+    simulate_evict,
     simulate_frozen,
     simulate_full,
     simulate_reactive,
@@ -46,6 +47,35 @@ def test_reactive_memory_bounded_by_budget():
     stream = _stream([[[int(x) for x in rng.integers(0, 50, 3)]] for _ in range(40)])
     st = simulate_reactive(stream, 1, budget=8)
     assert st.peak_resident_pages <= 8
+
+
+def test_evict_never_recovers_a_destroyed_page():
+    # budget 2: 0,1 fill it; wanting 2 evicts 0 (destroyed); every later
+    # want of 0 misses again -- no single fetch fixes it, unlike reactive.
+    stream = _stream([[[0]], [[1]], [[2]], [[0]], [[0]], [[0]]])
+    st = simulate_evict(stream, 1, budget=2)
+    assert st.misses == 3          # steps 3, 4, 5 all miss on page 0
+    assert st.fetches == 0         # nothing is ever recovered, so nothing is "fetched"
+
+
+def test_evict_misses_at_least_as_much_as_reactive_same_budget():
+    # Identical stream and budget fed to both policies: reactive recovers
+    # page 0 after one fetch and stops missing on it; evict never does.
+    stream = _stream([[[0]], [[1]], [[2]], [[0]], [[0]], [[0]]])
+    react = simulate_reactive(stream, 1, budget=2)
+    evict = simulate_evict(stream, 1, budget=2)
+    assert react.misses == 1       # one recoverable stall
+    assert evict.misses == 3       # same page, same budget, never recovers
+    assert evict.misses >= react.misses
+    # Memory is matched: same LRU cap drives both, so no interpolation
+    # is needed to compare them fairly (unlike reactive vs. frozen).
+    assert evict.peak_resident_pages == react.peak_resident_pages
+
+
+def test_evict_no_miss_when_budget_covers_working_set():
+    stream = _stream([[[0, 1]], [[0, 1]], [[0, 1]]])
+    st = simulate_evict(stream, 1, budget=4)
+    assert st.misses == 0  # nothing ever exceeds budget, nothing destroyed
 
 
 def test_classify_unstable_picks_the_churning_head():

@@ -101,9 +101,9 @@ model scales, workloads, and hardware is future work.
 
 \textbf{Models.} Qwen2.5-3B-Instruct (36 layers $\times$ 16 heads = 576
 attention heads), DeepSeek-R1-Distill-Qwen-1.5B (28 layers $\times$ 12
-heads = 336), and DeepSeek-R1-Distill-Llama-8B (32 layers $\times$ 8 KV
-heads = 256, bf16 on Ampere). Two hardware epochs: measurements on
-1.5B/3B were taken on Turing (RTX~2080~Ti, 11~GB, fp16 or float32
+heads = 336), and DeepSeek-R1-Distill-Llama-8B (32 layers $\times$ 32
+heads = 1024, GQA with 8 KV-groups, bf16 on Ampere). Two hardware
+epochs: measurements on 1.5B/3B were taken on Turing (RTX~2080~Ti, 11~GB, fp16 or float32
 where fp16 overflows); the 8B measurements were taken on Ampere
 (A30, 24~GB, bf16, PCIe~Gen4).
 
@@ -436,8 +436,15 @@ low intervals, and has a mechanistic explanation: the shim removes
 FlexiCache's offline classification entirely, so every head runs the
 fast sparse-decode path (0 dense heads vs.\ 64 in stock). Part of the
 win is doing less attention work per step, not purely better memory
-management --- future work should include a matched sparse-only
-baseline to isolate the two.
+management. Holding rerank interval fixed at the native cadence
+($R{=}16$) isolates this directly, reusing rows already in
+Table~\ref{tab:m2b2}: dropping from 64 dense heads to 0 more than
+doubles throughput (2.33$\times$) for a 5-point LongBench cost ---
+confirming sparsity alone already accounts for most of the throughput
+headline and essentially all of the quality cost
+(\texttt{notes/wakekv\_m2b2\_sweep\_a30.md}). This does not yet isolate
+rerank frequency's own contribution, though: the complementary cell
+(64 dense heads reranked every step) is still future work (below).
 
 \textbf{Quality.} LongBench mean (4 tasks, 30 samples each) stays
 95--99\% of stock across the whole rerank-interval sweep, with no
@@ -489,10 +496,15 @@ $\sim$200 samples/task, and to RULER and SCBench; (ii) cover the 8B
 and multi-turn regimes where the Phase 2a simulator showed the
 strongest memory/miss wins; (iii) measure real PCIe stall time from
 the fetch-on-demand path (currently visible only through end-to-end
-throughput); (iv) run a head-to-head against FlexiCache with a
-matched sparse-only configuration (0 dense heads at native rerank
-interval) to isolate the memory-management contribution from the
-``all-sparse'' contribution to the throughput win.
+throughput); (iv) run the complementary sparse$\times$rerank cell ---
+FlexiCache's 64-dense-head classification reranked every step,
+matching WakeKV's native cadence --- to isolate rerank frequency's own
+contribution from the dense-head-count effect already isolated above;
+(v) run a real-system evict-vs-offload head-to-head (C3); the
+simulator (\S\ref{sec:sim}) already has a first, matched-budget
+reading favoring reversible offload, but \S\ref{sec:sim}'s prose and
+table do not yet report it and the real-system comparison remains
+undone.
 
 \section*{Reproducibility}
 Source, logs, and results at \NEEDPROSE{GitHub URL after de-anonymize}.

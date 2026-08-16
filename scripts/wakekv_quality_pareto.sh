@@ -71,6 +71,32 @@ run_isolated() {   # $1 = rerank, $2 = mode(off|reactive), $3 = out label
     reshape_one "flexicache-64-unstable-${R}-rerank-64-topK" "$label" || echo "!!! RESHAPE FAILED $label"
 }
 
+# FullKV reference point: no FlexiCache at all (dense attention, full
+# cache). Pairs with wakekv_rerank_sweep.sh's fullkv throughput row so
+# Table 4 gets a genuine ceiling, not just a comparison among compressed
+# policies.
+run_fullkv_quality() {
+    local label="wakekv-longbench-fullkv.json"
+    if [ -s "$OUT_DIR/$label" ]; then
+        echo ">>> SKIP (present): $label"; return 0
+    fi
+    echo "==== $(date) $label : dense (no FlexiCache) ===="
+    rm -rf pred results 2>/dev/null || true
+    python run_benchmark.py --model "$MODEL" --dataset $LONGBENCH_TASKS \
+        --batch_size "$BATCH_SIZE" --limit "$SAMPLES_PER_TASK" \
+        || { echo "!!! GEN FAILED $label"; return 0; }
+    python eval.py
+    # UNVERIFIED: without --flexicache, run_benchmark.py almost certainly
+    # writes results/pred.json under a DIFFERENT config-string key than
+    # FlexiCache's "flexicache-64-unstable-*-rerank-*-topK" pattern (that
+    # pattern is FlexiCache-specific naming). "dense" below is a guess, not
+    # something checked against the actual harness. If reshape fails, open
+    # results/pred.json, find the real key for this run, and fix the string.
+    reshape_one "dense" "$label" \
+        || echo "!!! RESHAPE FAILED $label — inspect results/pred.json for the real config key and fix the cfg string in run_fullkv_quality()"
+}
+run_fullkv_quality
+
 # stock + reactive-r1 already exist from wakekv_longbench_check.sh (skipped).
 run_isolated 16 off      "wakekv-longbench-stock.json"
 for R in $INTERVALS; do
