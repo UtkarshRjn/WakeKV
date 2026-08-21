@@ -10,9 +10,18 @@
 # skipped, so the stock + reactive-r1 results from the earlier run are reused
 # and a teardown just resumes.
 #
+# GPU-portable: TORCH_CUDA_ARCH_LIST is the only hardware-specific value
+# here and is now an override (A30-safe default preserved). On H100
+# (Hopper, compute capability 9.0) set it to 9.0 before invoking -- left
+# at the Ampere default (8.0) it compiles kernels for the wrong
+# architecture. WAKEKV_MAX_MODEL_LEN already defaults to an A30-safe
+# value and is overridable if you want to use more of a bigger card's
+# memory (H100: 80GB vs A30's 24GB) instead of reproducing A30 exactly.
+#
 # Usage:  bash scripts/wakekv_quality_pareto.sh
 # Env:    INTERVALS (default "1 2 4 8 16"), LONGBENCH_TASKS, SAMPLES_PER_TASK,
-#         BATCH_SIZE, WAKEKV_MAX_MODEL_LEN, WAKEKV_ROOT, FLEXI_ROOT
+#         BATCH_SIZE, WAKEKV_MAX_MODEL_LEN, WAKEKV_ROOT, FLEXI_ROOT,
+#         TORCH_CUDA_ARCH_LIST (8.0=Ampere/A30/A100, 9.0=Hopper/H100)
 set -euo pipefail
 
 WAKEKV_ROOT="${WAKEKV_ROOT:-/home/utranjan/dynamic-head-kv}"
@@ -27,7 +36,7 @@ source /opt/conda/etc/profile.d/conda.sh
 conda activate FlexiCache
 export PYTHONPATH="$WAKEKV_ROOT:${PYTHONPATH:-}"
 export VLLM_USE_V1=1 VLLM_ATTENTION_BACKEND=TRITON_ATTN_VLLM_V1
-export TORCH_CUDA_ARCH_LIST="8.0" VLLM_ENABLE_V1_MULTIPROCESSING=0
+export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.0}" VLLM_ENABLE_V1_MULTIPROCESSING=0
 
 MODEL="Mistral-7B-Instruct-v0.2"
 BENCH_DIR="$FLEXI_ROOT/benchmarks/FlexiCache/Language_Modelling/LongBench"
