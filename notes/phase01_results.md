@@ -161,3 +161,76 @@ regimes (long CoT, multi-turn) at an acceptable stall cost.
   coarser). Confirm on 7–8B before any paper claim.
 - All on an 11 GB Turing card; PCIe/throughput numbers are the *bar*, not
   measured system performance (that's Phase 2/3).
+
+---
+
+## Post-G1 follow-up candidates: ensemble vote + data-driven token correlation
+
+**Status: implemented, unit-tested on synthetic data, code verified end-to-end
+on a synthetic smoke-test log — NOT YET RUN on real Phase 0/1 logs.** The
+`.npz` run logs live only on the cluster (`runs/`, gitignored); this repo
+checkout has no copy, so no real numbers exist yet for this section. Nothing
+below is a result — it's a description of two new candidates plus the exact
+command to produce real numbers.
+
+The G1 verdict (deployable causal-z-score precision 0.06–0.20 for every
+individual signal) motivated the reactive design. Before treating that as
+final, two natural follow-ups: do the four failed signals fail for
+*correlated* reasons (so combining them helps), and does anything about
+*what the model is generating* — as opposed to what any one head is
+attending to — predict a wake burst?
+
+### Ensemble vote (`wakekv.signals.ensemble_vote`)
+
+Each of the four signals is causally z-scored (as in the G1 deployable
+grading) and fires if it exceeds `z > 2.0`; `ensemble_vote` is the per-step
+count of how many agree. Graded at "≥2 of 4 agree" via the same
+`evaluate_fixed_threshold` machinery as everything else in this doc. This
+only helps if the four signals' false positives are actually decorrelated —
+since they're all attention-derived (three from top-k set overlap, one from
+entropy), they may well share the same false alarms, in which case voting
+buys nothing. That's an empirical question the real logs will answer.
+
+### Data-driven token/wake correlation (`wakekv.signals.token_wake_stats`)
+
+The original idea here was a hand-picked discourse-marker word list ("wait",
+"so", "therefore", ...) — rejected as unscientific: an uncited, arbitrary
+guess about which words matter, and tuning such a list against results
+afterward would be circular. The implemented version instead:
+
+1. **Discovery** (first half of each run's steps, pooled across runs): every
+   generated token id occurring ≥5 times is tested with a two-proportion
+   z-test — does *this* token's occurrence predict "a wake burst in the next
+   8 steps" more than the run's base rate? — Bonferroni-corrected across every
+   distinct token id tested (a 30k+ token vocabulary means plenty of tokens
+   will look significant by chance alone at an uncorrected threshold).
+2. **Held-out evaluation** (second half of each run's steps, never seen
+   during discovery): precision/recall of firing on the discovered token set,
+   graded the same way as every other signal in this doc.
+3. The "wake burst" target is pooled across heads (any head waking), not one
+   head's own events — consistent with the clustering finding above that
+   wake-ups bunch across heads, not independently per head.
+
+This is a genuinely different kind of signal from the other five (it reads
+the model's own output, not its attention pattern) and — because of the
+train/test split — the held-out precision/recall it produces would be an
+honest number, not an oracle-tuned one, if any token clears the bar.
+
+### Reproducing on real logs
+
+```bash
+python scripts/analyze_phase1.py runs/<model>/<task>
+```
+
+No new flags are required (`--marker-lead`, `--marker-min-count`,
+`--marker-alpha` have defaults of 8, 5, 0.05); the two new candidates appear
+automatically as extra rows/sections in the existing `signal_study.md`
+output, alongside the original four. Requires `gen_token_ids` in the log
+(already recorded by `wakekv/instrument.py` for every Phase 0 run) — no
+tokenizer or `transformers` dependency needed, since the correlation study
+operates on raw token ids.
+
+Unit tests: `tests/test_signals.py` (`test_token_wake_stats_*`,
+`test_bonferroni_z_bar_*`, `test_ensemble_vote_*`, `test_event_horizon_mask_*`,
+`test_signal_discovered_tokens_*`) — synthetic data only, since real logs
+aren't available in this environment.

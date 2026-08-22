@@ -95,6 +95,151 @@ def signal_needle_mass_delta(score: np.ndarray, window: int = 4) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# Token/wake-event correlation — DATA-DRIVEN, not a hand-picked word list.
+#
+# A fixed "discourse marker" vocabulary (wait, so, therefore, ...) would be
+# an arbitrary, uncited guess about which words matter, and tuning it by eye
+# against results would be circular. Instead: scan every token that actually
+# occurred, test each one's empirical lift in predicting a wake burst via a
+# two-proportion z-test, correct for testing thousands of vocab entries at
+# once (Bonferroni), and evaluate the selected tokens ONLY on data disjoint
+# from what selected them (see analyze_phase1.py's discovery/held-out
+# split) — using the same data for both is the textbook multiple-comparisons
+# trap: at a 30k-token vocabulary, plenty of tokens will look "significant"
+# by chance alone at an uncorrected threshold.
+# ---------------------------------------------------------------------------
+
+def event_horizon_mask(events: list[int], length: int, lead: int) -> np.ndarray:
+    """True at step t if a wake event occurs in (t, t+lead] — "a wake is
+    about to happen." The binary outcome variable for the token/wake
+    correlation test; matches the "true alarm" window definition used
+    throughout ``evaluate_signal``/``evaluate_fixed_threshold``."""
+    mask = np.zeros(length, dtype=bool)
+    for e in events:
+        lo = max(0, e - lead)
+        mask[lo:e] = True
+    return mask
+
+
+@dataclass
+class TokenWakeStat:
+    token_id: int
+    count: int
+    hit_rate: float
+    base_rate: float
+    lift: float
+    z: float
+
+
+def token_wake_stats(
+    token_ids: np.ndarray, wake_soon: np.ndarray, min_count: int = 5
+) -> list[TokenWakeStat]:
+    """Two-proportion z-test, per distinct token id that occurred, of
+    P(wake soon | this token) vs. the run's base rate P(wake soon).
+
+    ``token_ids``: [steps] generated token id at each step.
+    ``wake_soon``: [steps] boolean, e.g. from ``event_horizon_mask``.
+    Tokens occurring fewer than ``min_count`` times are skipped — a z-test
+    on a handful of samples is noise, not evidence. Caller must still guard
+    against multiple comparisons (``bonferroni_z_bar``) and must not reuse
+    this SAME data to both select and evaluate a token (see module note).
+    """
+    token_ids = np.asarray(token_ids)
+    wake_soon = np.asarray(wake_soon, dtype=bool)
+    n0 = len(wake_soon)
+    p0 = float(wake_soon.mean()) if n0 else 0.0
+    out = []
+    for tok in np.unique(token_ids):
+        idx = token_ids == tok
+        n1 = int(idx.sum())
+        if n1 < min_count:
+            continue
+        p1 = float(wake_soon[idx].mean())
+        pooled = (p1 * n1 + p0 * n0) / (n1 + n0)
+        if 0.0 < pooled < 1.0:
+            se = float(np.sqrt(pooled * (1 - pooled) * (1 / n1 + 1 / n0)))
+        else:
+            se = 0.0
+        z = (p1 - p0) / se if se > 1e-12 else 0.0
+        if p0 > 1e-12:
+            lift = p1 / p0
+        else:
+            lift = float("inf") if p1 > 0 else float("nan")
+        out.append(TokenWakeStat(int(tok), n1, p1, p0, lift, float(z)))
+    return out
+
+
+def _norm_ppf(p: float) -> float:
+    """Inverse standard normal CDF (quantile function). Peter Acklam's
+    public-domain rational approximation (~1e-9 relative error) — avoids
+    adding scipy as a dependency for one function."""
+    if p <= 0.0:
+        return float("-inf")
+    if p >= 1.0:
+        return float("inf")
+    a = [-3.969683028665376e01, 2.209460984245205e02, -2.759285104469687e02,
+         1.383577518672690e02, -3.066479806614716e01, 2.506628277459239e00]
+    b = [-5.447609879822406e01, 1.615858368580409e02, -1.556989798598866e02,
+         6.680131188771972e01, -1.328068155288572e01]
+    c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e00,
+         -2.549732539343734e00, 4.374664141464968e00, 2.938163982698783e00]
+    d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e00,
+         3.754408661907416e00]
+    p_low = 0.02425
+    p_high = 1 - p_low
+    if p < p_low:
+        q = np.sqrt(-2 * np.log(p))
+        return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
+               ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+    if p <= p_high:
+        q = p - 0.5
+        r = q * q
+        return ((((( a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / \
+               ((((( b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
+    q = np.sqrt(-2 * np.log(1 - p))
+    return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
+            ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+
+
+def bonferroni_z_bar(n_tests: int, alpha: float = 0.05) -> float:
+    """One-sided z-threshold so that, after testing ``n_tests`` distinct
+    tokens, the family-wise false-positive rate stays at ``alpha`` (Bonferroni:
+    per-test alpha' = alpha / n_tests). Bigger vocabularies demand a higher
+    bar — this is what makes the discovery step honest at 30k+ token scale."""
+    n_tests = max(1, n_tests)
+    return _norm_ppf(1.0 - alpha / n_tests)
+
+
+def signal_discovered_tokens(token_ids: np.ndarray, marker_token_ids: set) -> np.ndarray:
+    """Binary per-step signal: 1 if the generated token at this step is in
+    ``marker_token_ids`` — a set chosen by ``token_wake_stats`` +
+    ``bonferroni_z_bar`` on DIFFERENT (earlier) data than this array. This is
+    the data-driven replacement for a fixed marker-word list: what counts as
+    a "marker" is discovered per model/run rather than guessed in advance."""
+    ids = np.asarray(token_ids)
+    if not marker_token_ids:
+        return np.zeros(len(ids), dtype=np.float64)
+    return np.isin(ids, list(marker_token_ids)).astype(np.float64)
+
+
+def ensemble_vote(zscored_signals: list[np.ndarray], threshold: float = 2.0) -> np.ndarray:
+    """Per-step count of how many (already causal-z-scored) input signals
+    exceed ``threshold`` at that step.
+
+    Grade with ``evaluate_fixed_threshold`` at, e.g., threshold=1.5 to mean
+    "fires when at least 2 of the signals agree" — the four Phase-1 signals
+    (online_rco, drift, entropy_trend, needle_mass_delta) each failed alone,
+    but they need not share the same false positives; requiring agreement
+    trades recall for precision only if their errors are actually
+    decorrelated, which this tests.
+    """
+    if not zscored_signals:
+        raise ValueError("ensemble_vote requires at least one signal")
+    stacked = np.stack(zscored_signals, axis=0)
+    return (stacked > threshold).sum(axis=0).astype(np.float64)
+
+
+# ---------------------------------------------------------------------------
 # Lead-time evaluation
 # ---------------------------------------------------------------------------
 
