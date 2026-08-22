@@ -10,9 +10,24 @@
 # Scaled for A30 (24GB): input 8k, 24 prompts, output 1000 (the regime where
 # stock FlexiCache showed its largest speedup vs vLLM). Override via env.
 #
+# GPU-portable: TORCH_CUDA_ARCH_LIST -- the only value that was ever
+# hardcoded to a specific card -- is now auto-detected from whatever GPU
+# is actually attached (see wakekv_gpu_lib.sh), with an explicit env var
+# still taking precedence if you set one. The memory/batch knobs
+# (GPU_MEM_UTIL, MAX_MODEL_LEN, MAX_BATCHED_TOKENS, MAX_NUM_SEQS) default
+# to the same A30-tuned values so a rerun on different hardware stays
+# comparable to the existing numbers by default; override them if you
+# want to push a bigger card (H100: 80GB vs A30's 24GB) closer to its
+# own ceiling instead of reproducing A30's.
+#
 # Usage:  bash scripts/wakekv_rerank_sweep.sh
-# Env:    WAKEKV_ROOT, FLEXI_ROOT, INTERVALS, OUTPUT_LEN, NUM_PROMPTS, INPUT_LEN
+# Env:    WAKEKV_ROOT, FLEXI_ROOT, INTERVALS, OUTPUT_LEN, NUM_PROMPTS, INPUT_LEN,
+#         TORCH_CUDA_ARCH_LIST (auto-detected if unset -- see wakekv_gpu_lib.sh),
+#         GPU_MEM_UTIL, MAX_MODEL_LEN, MAX_BATCHED_TOKENS, MAX_NUM_SEQS
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/wakekv_gpu_lib.sh"
 
 WAKEKV_ROOT="${WAKEKV_ROOT:-/home/utranjan/dynamic-head-kv}"
 FLEXI_ROOT="${FLEXI_ROOT:-/home/utranjan/FlexiCache}"
@@ -20,13 +35,17 @@ INTERVALS="${INTERVALS:-1 2 4 8 16}"
 INPUT_LEN="${INPUT_LEN:-8000}"
 OUTPUT_LEN="${OUTPUT_LEN:-1000}"
 NUM_PROMPTS="${NUM_PROMPTS:-24}"
+GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.90}"
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-10240}"
+MAX_BATCHED_TOKENS="${MAX_BATCHED_TOKENS:-8192}"
+MAX_NUM_SEQS="${MAX_NUM_SEQS:-16}"
 
 source /opt/conda/etc/profile.d/conda.sh
 conda activate FlexiCache
 export PYTHONPATH="$WAKEKV_ROOT:${PYTHONPATH:-}"
 export VLLM_USE_V1=1
 export VLLM_ATTENTION_BACKEND=TRITON_ATTN_VLLM_V1
-export TORCH_CUDA_ARCH_LIST="8.0"
+export TORCH_CUDA_ARCH_LIST="$(detect_cuda_arch)"
 # Keep vLLM's engine-core in this process so the in-process shim reaches it.
 export VLLM_ENABLE_V1_MULTIPROCESSING=0
 
@@ -45,9 +64,9 @@ common_bench_args() {
   local rerank="$1" outfile="$2"
   echo --dataset-name leval --dataset-path "$DATASET" \
        --model "$MODEL" \
-       --gpu-memory-utilization 0.90 --tensor-parallel-size 1 --max-model-len 10240 \
+       --gpu-memory-utilization "$GPU_MEM_UTIL" --tensor-parallel-size 1 --max-model-len "$MAX_MODEL_LEN" \
        --no-enable-prefix-caching --disable-cascade-attn \
-       --max-num-batched-tokens 8192 --max-num-seqs 16 \
+       --max-num-batched-tokens "$MAX_BATCHED_TOKENS" --max-num-seqs "$MAX_NUM_SEQS" \
        --input-len "$INPUT_LEN" --output-len "$OUTPUT_LEN" --num-prompts "$NUM_PROMPTS" \
        --random-range-ratio-input 0.3333 --random-range-ratio-output 1 \
        --seed 42 --output-json "$outfile" \
@@ -66,9 +85,9 @@ common_bench_args_fullkv() {
   local outfile="$1"
   echo --dataset-name leval --dataset-path "$DATASET" \
        --model "$MODEL" \
-       --gpu-memory-utilization 0.90 --tensor-parallel-size 1 --max-model-len 10240 \
+       --gpu-memory-utilization "$GPU_MEM_UTIL" --tensor-parallel-size 1 --max-model-len "$MAX_MODEL_LEN" \
        --no-enable-prefix-caching --disable-cascade-attn \
-       --max-num-batched-tokens 8192 --max-num-seqs 16 \
+       --max-num-batched-tokens "$MAX_BATCHED_TOKENS" --max-num-seqs "$MAX_NUM_SEQS" \
        --input-len "$INPUT_LEN" --output-len "$OUTPUT_LEN" --num-prompts "$NUM_PROMPTS" \
        --random-range-ratio-input 0.3333 --random-range-ratio-output 1 \
        --seed 42 --output-json "$outfile"

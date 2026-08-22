@@ -10,10 +10,22 @@
 # skipped, so the stock + reactive-r1 results from the earlier run are reused
 # and a teardown just resumes.
 #
+# GPU-portable: TORCH_CUDA_ARCH_LIST -- the only hardware-specific value
+# here -- is now auto-detected from whatever GPU is actually attached
+# (see wakekv_gpu_lib.sh), with an explicit env var still taking
+# precedence if you set one. WAKEKV_MAX_MODEL_LEN already defaults to an
+# A30-safe value and is overridable if you want to use more of a bigger
+# card's memory (H100: 80GB vs A30's 24GB) instead of reproducing A30
+# exactly.
+#
 # Usage:  bash scripts/wakekv_quality_pareto.sh
 # Env:    INTERVALS (default "1 2 4 8 16"), LONGBENCH_TASKS, SAMPLES_PER_TASK,
-#         BATCH_SIZE, WAKEKV_MAX_MODEL_LEN, WAKEKV_ROOT, FLEXI_ROOT
+#         BATCH_SIZE, WAKEKV_MAX_MODEL_LEN, WAKEKV_ROOT, FLEXI_ROOT,
+#         TORCH_CUDA_ARCH_LIST (auto-detected if unset -- see wakekv_gpu_lib.sh)
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/wakekv_gpu_lib.sh"
 
 WAKEKV_ROOT="${WAKEKV_ROOT:-/home/utranjan/dynamic-head-kv}"
 FLEXI_ROOT="${FLEXI_ROOT:-/home/utranjan/FlexiCache}"
@@ -27,7 +39,8 @@ source /opt/conda/etc/profile.d/conda.sh
 conda activate FlexiCache
 export PYTHONPATH="$WAKEKV_ROOT:${PYTHONPATH:-}"
 export VLLM_USE_V1=1 VLLM_ATTENTION_BACKEND=TRITON_ATTN_VLLM_V1
-export TORCH_CUDA_ARCH_LIST="8.0" VLLM_ENABLE_V1_MULTIPROCESSING=0
+export TORCH_CUDA_ARCH_LIST="$(detect_cuda_arch)"
+export VLLM_ENABLE_V1_MULTIPROCESSING=0
 
 MODEL="Mistral-7B-Instruct-v0.2"
 BENCH_DIR="$FLEXI_ROOT/benchmarks/FlexiCache/Language_Modelling/LongBench"
