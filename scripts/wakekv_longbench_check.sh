@@ -11,10 +11,18 @@
 # Quality is expected to be preserved; a task regressing more than a few points
 # is a real finding and blocks M2b-2.
 #
+# GPU-portable: TORCH_CUDA_ARCH_LIST is auto-detected from whatever GPU
+# is actually attached (see wakekv_gpu_lib.sh); an explicit env var still
+# takes precedence if you set one.
+#
 # Usage:  bash scripts/wakekv_longbench_check.sh
 # Env:    WAKEKV_ROOT, FLEXI_ROOT, LONGBENCH_TASKS, SAMPLES_PER_TASK,
-#         RERANK_INTERVAL, BATCH_SIZE, WAKEKV_MAX_MODEL_LEN
+#         RERANK_INTERVAL, BATCH_SIZE, WAKEKV_MAX_MODEL_LEN,
+#         TORCH_CUDA_ARCH_LIST (auto-detected if unset -- see wakekv_gpu_lib.sh)
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/wakekv_gpu_lib.sh"
 
 WAKEKV_ROOT="${WAKEKV_ROOT:-/home/utranjan/dynamic-head-kv}"
 FLEXI_ROOT="${FLEXI_ROOT:-/home/utranjan/FlexiCache}"
@@ -29,7 +37,7 @@ conda activate FlexiCache
 export PYTHONPATH="$WAKEKV_ROOT:${PYTHONPATH:-}"
 export VLLM_USE_V1=1
 export VLLM_ATTENTION_BACKEND=TRITON_ATTN_VLLM_V1
-export TORCH_CUDA_ARCH_LIST="8.0"
+export TORCH_CUDA_ARCH_LIST="$(detect_cuda_arch)"
 export VLLM_ENABLE_V1_MULTIPROCESSING=0
 
 MODEL="Mistral-7B-Instruct-v0.2"                     # run_benchmark.py model KEY (not HF path)

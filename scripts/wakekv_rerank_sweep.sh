@@ -10,21 +10,24 @@
 # Scaled for A30 (24GB): input 8k, 24 prompts, output 1000 (the regime where
 # stock FlexiCache showed its largest speedup vs vLLM). Override via env.
 #
-# GPU-portable: only TORCH_CUDA_ARCH_LIST was ever hardcoded to a specific
-# card (Ampere/8.0). It's now an override with that same A30-safe default,
-# so this script "just works" unmodified on Ampere but needs one env var
-# set correctly elsewhere (H100/Hopper is compute capability 9.0). The
-# memory/batch knobs (GPU_MEM_UTIL, MAX_MODEL_LEN, MAX_BATCHED_TOKENS,
-# MAX_NUM_SEQS) default to the same A30-tuned values so a rerun on
-# different hardware stays comparable to the existing numbers by default;
-# override them if you want to push a bigger card (H100: 80GB vs A30's
-# 24GB) closer to its own ceiling instead of reproducing A30's.
+# GPU-portable: TORCH_CUDA_ARCH_LIST -- the only value that was ever
+# hardcoded to a specific card -- is now auto-detected from whatever GPU
+# is actually attached (see wakekv_gpu_lib.sh), with an explicit env var
+# still taking precedence if you set one. The memory/batch knobs
+# (GPU_MEM_UTIL, MAX_MODEL_LEN, MAX_BATCHED_TOKENS, MAX_NUM_SEQS) default
+# to the same A30-tuned values so a rerun on different hardware stays
+# comparable to the existing numbers by default; override them if you
+# want to push a bigger card (H100: 80GB vs A30's 24GB) closer to its
+# own ceiling instead of reproducing A30's.
 #
 # Usage:  bash scripts/wakekv_rerank_sweep.sh
 # Env:    WAKEKV_ROOT, FLEXI_ROOT, INTERVALS, OUTPUT_LEN, NUM_PROMPTS, INPUT_LEN,
-#         TORCH_CUDA_ARCH_LIST (8.0=Ampere/A30/A100, 9.0=Hopper/H100),
+#         TORCH_CUDA_ARCH_LIST (auto-detected if unset -- see wakekv_gpu_lib.sh),
 #         GPU_MEM_UTIL, MAX_MODEL_LEN, MAX_BATCHED_TOKENS, MAX_NUM_SEQS
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/wakekv_gpu_lib.sh"
 
 WAKEKV_ROOT="${WAKEKV_ROOT:-/home/utranjan/dynamic-head-kv}"
 FLEXI_ROOT="${FLEXI_ROOT:-/home/utranjan/FlexiCache}"
@@ -42,10 +45,7 @@ conda activate FlexiCache
 export PYTHONPATH="$WAKEKV_ROOT:${PYTHONPATH:-}"
 export VLLM_USE_V1=1
 export VLLM_ATTENTION_BACKEND=TRITON_ATTN_VLLM_V1
-# 8.0 = Ampere (A30/A100). On H100 (Hopper), set TORCH_CUDA_ARCH_LIST=9.0
-# before invoking this script -- leaving it at 8.0 on an H100 compiles
-# kernels for the wrong architecture (slow PTX-JIT fallback at best).
-export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.0}"
+export TORCH_CUDA_ARCH_LIST="$(detect_cuda_arch)"
 # Keep vLLM's engine-core in this process so the in-process shim reaches it.
 export VLLM_ENABLE_V1_MULTIPROCESSING=0
 
