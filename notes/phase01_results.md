@@ -166,71 +166,82 @@ regimes (long CoT, multi-turn) at an acceptable stall cost.
 
 ## Post-G1 follow-up candidates: ensemble vote + data-driven token correlation
 
-**Status: implemented, unit-tested on synthetic data, code verified end-to-end
-on a synthetic smoke-test log — NOT YET RUN on real Phase 0/1 logs.** The
-`.npz` run logs live only on the cluster (`runs/`, gitignored); this repo
-checkout has no copy, so no real numbers exist yet for this section. Nothing
-below is a result — it's a description of two new candidates plus the exact
-command to produce real numbers.
+**Status: RUN on real logs** (`bash scripts/wakekv_analyze_all_phase1.sh`,
+4 model/task combos, 0 failures — full run reported in
+[PR #18](https://github.com/UtkarshRjn/dynamic-head-kv/pull/18)). Method
+recap below, then the actual result.
 
 The G1 verdict (deployable causal-z-score precision 0.06–0.20 for every
-individual signal) motivated the reactive design. Before treating that as
-final, two natural follow-ups: do the four failed signals fail for
-*correlated* reasons (so combining them helps), and does anything about
-*what the model is generating* — as opposed to what any one head is
-attending to — predict a wake burst?
+individual signal) motivated the reactive design. Two follow-ups tested
+whether that verdict leaves anything on the table: do the four failed
+signals fail for *correlated* reasons (so combining them helps), and does
+anything about *what the model is generating* — as opposed to what any one
+head is attending to — predict a wake burst?
 
-### Ensemble vote (`wakekv.signals.ensemble_vote`)
+- **Ensemble vote** (`wakekv.signals.ensemble_vote`): each of the four
+  signals is causally z-scored (as in the G1 deployable grading) and fires
+  at `z > 2.0`; the ensemble is the per-step count of how many agree,
+  graded at "≥2 of 4 agree."
+- **Data-driven token/wake correlation** (`wakekv.signals.token_wake_stats`):
+  replaces a hand-picked discourse-marker word list (rejected as
+  unscientific — see PR discussion) with an unbiased scan of every
+  generated token id. **Discovery** (first half of each run's steps, pooled
+  across runs): every token id occurring ≥5 times is tested with a
+  two-proportion z-test against the run's base "wake burst in the next 8
+  steps" rate, Bonferroni-corrected across every distinct token tested.
+  **Held-out evaluation** (second half, never seen during discovery):
+  precision/recall of firing on the discovered set only.
 
-Each of the four signals is causally z-scored (as in the G1 deployable
-grading) and fires if it exceeds `z > 2.0`; `ensemble_vote` is the per-step
-count of how many agree. Graded at "≥2 of 4 agree" via the same
-`evaluate_fixed_threshold` machinery as everything else in this doc. This
-only helps if the four signals' false positives are actually decorrelated —
-since they're all attention-derived (three from top-k set overlap, one from
-entropy), they may well share the same false alarms, in which case voting
-buys nothing. That's an empirical question the real logs will answer.
+### Result
 
-### Data-driven token/wake correlation (`wakekv.signals.token_wake_stats`)
+| model / task | events | best attention signal (causal z, F1) | ensemble_vote (causal z, F1) | token markers (held-out P/R/F1 @ lead 32) |
+|---|---|---|---|---|
+| Qwen2.5-3B-Instruct / multiturn | 73 | drift **0.31** | 0.17 | 0 markers found |
+| Qwen2.5-3B-Instruct / niah | 236 | entropy_trend **0.26** | 0.18 | 0 markers found |
+| DeepSeek-R1-Distill-Llama-8B / cot | 1137 | drift/online_rco **0.10** | 0.09 | **4 markers → P 0.48, R 0.89, F1 ≈ 0.62** |
+| DeepSeek-R1-Distill-Qwen-1.5B / cot | 407 | drift **0.14** | 0.13 | **1 marker → P 0.43, R 0.68, F1 ≈ 0.53** |
 
-The original idea here was a hand-picked discourse-marker word list ("wait",
-"so", "therefore", ...) — rejected as unscientific: an uncited, arbitrary
-guess about which words matter, and tuning such a list against results
-afterward would be circular. The implemented version instead:
+**Ensemble vote: negative.** It never beats the single best attention signal
+in any of the 4 combos (0.17<0.31, 0.18<0.26, 0.09<0.10, 0.13<0.14) — the
+four signals' false positives aren't decorrelated enough for voting to help;
+requiring agreement mostly just drags toward the pack's middle. Consistent
+with three of them sharing the same top-k-overlap machinery.
 
-1. **Discovery** (first half of each run's steps, pooled across runs): every
-   generated token id occurring ≥5 times is tested with a two-proportion
-   z-test — does *this* token's occurrence predict "a wake burst in the next
-   8 steps" more than the run's base rate? — Bonferroni-corrected across every
-   distinct token id tested (a 30k+ token vocabulary means plenty of tokens
-   will look significant by chance alone at an uncorrected threshold).
-2. **Held-out evaluation** (second half of each run's steps, never seen
-   during discovery): precision/recall of firing on the discovered token set,
-   graded the same way as every other signal in this doc.
-3. The "wake burst" target is pooled across heads (any head waking), not one
-   head's own events — consistent with the clustering finding above that
-   wake-ups bunch across heads, not independently per head.
+**Token/wake correlation: real, but CoT-only.** Zero markers survive the
+Bonferroni bar on multiturn or NIAH (Qwen2.5-3B, non-reasoning tasks). On
+both CoT runs (DeepSeek-R1-Distill, reasoning traces) it finds markers whose
+*held-out* F1 (0.53–0.62) is 4–5x every other signal in this document,
+attention-based or ensembled, on the same data. Because of the discovery/
+held-out split this isn't an oracle-tuned number — it's what a controller
+could actually achieve online. This is the first candidate anywhere in
+Phase 1 that clears a genuinely useful bar, and it does so exactly where the
+original hypothesis expected it: reasoning traces, not short-context
+retrieval or multi-turn chat.
 
-This is a genuinely different kind of signal from the other five (it reads
-the model's own output, not its attention pattern) and — because of the
-train/test split — the held-out precision/recall it produces would be an
-honest number, not an oracle-tuned one, if any token clears the bar.
+Marker token ids found (8B/cot): `1396` (n=8, lift 4.6, z=5.3), `20597`
+(n=5, lift 4.6, z=4.2), `220` (n=168, lift 1.6, z=4.2), `10461` (n=9, lift
+3.6, z=4.1). 1.5B/cot: `220` (n=93, lift 1.5, z=3.4). **Caveat:** these are
+raw token ids — the study intentionally needs no tokenizer to run, but two
+of the 8B markers have small discovery counts (n=8, n=5, right at the
+`min_count` floor) and none have been decoded to text yet, so what they
+*are* (a discourse marker like "wait", vs. punctuation/whitespace, vs.
+something else) is still unconfirmed. `token_id 220` recurring across both
+CoT runs is notable but the two models use different tokenizers (Qwen vs.
+Llama), so it's very unlikely to be the same literal token — decoding both
+independently (`tokenizer.decode([220])` per model) is a cheap, valuable
+next step before reading anything into the overlap.
 
-### Reproducing on real logs
+One more open item: this NIAH run (236 events, 9 runs pooled) is larger than
+the single 64-step shakedown run in the G0 table above — worth reconciling
+whether G0's NIAH row should be updated with the fuller run set.
+
+### Reproducing / extending
 
 ```bash
-python scripts/analyze_phase1.py runs/<model>/<task>
+bash scripts/wakekv_analyze_all_phase1.sh          # all model/task combos
+python scripts/analyze_phase1.py runs/<model>/<task>  # one combo
 ```
-
-No new flags are required (`--marker-lead`, `--marker-min-count`,
-`--marker-alpha` have defaults of 8, 5, 0.05); the two new candidates appear
-automatically as extra rows/sections in the existing `signal_study.md`
-output, alongside the original four. Requires `gen_token_ids` in the log
-(already recorded by `wakekv/instrument.py` for every Phase 0 run) — no
-tokenizer or `transformers` dependency needed, since the correlation study
-operates on raw token ids.
 
 Unit tests: `tests/test_signals.py` (`test_token_wake_stats_*`,
 `test_bonferroni_z_bar_*`, `test_ensemble_vote_*`, `test_event_horizon_mask_*`,
-`test_signal_discovered_tokens_*`) — synthetic data only, since real logs
-aren't available in this environment.
+`test_signal_discovered_tokens_*`).
