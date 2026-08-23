@@ -2,15 +2,20 @@ import numpy as np
 import pytest
 
 from wakekv.signals import (
+    bonferroni_z_bar,
     causal_zscore,
+    ensemble_vote,
     evaluate_fixed_threshold,
     evaluate_signal,
+    event_horizon_mask,
     page_kv_bytes,
     pooled_threshold,
+    signal_discovered_tokens,
     signal_drift,
     signal_entropy_trend,
     signal_needle_mass_delta,
     signal_online_rco,
+    token_wake_stats,
     transfer_steps_needed,
     wake_events,
 )
@@ -129,6 +134,86 @@ def test_causal_zscore_is_causal():
     b = a.copy(); b[30] = 9.0
     za, zb = causal_zscore(a, window=8), causal_zscore(b, window=8)
     assert np.allclose(za[:30], zb[:30])
+
+
+def test_event_horizon_mask_marks_pre_event_window():
+    mask = event_horizon_mask(events=[10], length=20, lead=4)
+    assert mask[6:10].all()      # (10-4, 10) is "wake soon"
+    assert not mask[:6].any()
+    assert not mask[10:].any()   # event itself and after: not "soon" anymore
+
+
+def test_token_wake_stats_flags_a_genuinely_correlated_token():
+    rng = np.random.default_rng(0)
+    n = 2000
+    token_ids = rng.integers(0, 50, size=n)  # 50-token vocab, uniform baseline
+    wake_soon = np.zeros(n, dtype=bool)
+    # token 7 co-occurs with "wake soon" far more than its ~1/50 base rate
+    hits = np.flatnonzero(token_ids == 7)
+    wake_soon[hits[: len(hits) // 2]] = True
+    # sprinkle some baseline-rate wakes elsewhere so p0 > 0
+    other = np.flatnonzero(token_ids != 7)
+    wake_soon[rng.choice(other, size=len(other) // 50, replace=False)] = True
+
+    stats = token_wake_stats(token_ids, wake_soon, min_count=5)
+    by_id = {s.token_id: s for s in stats}
+    assert by_id[7].lift > 3.0
+    assert by_id[7].z > bonferroni_z_bar(n_tests=len(stats), alpha=0.05)
+    # a token with no special relationship shouldn't clear the corrected bar
+    other_ids = [tid for tid in by_id if tid != 7]
+    assert not any(by_id[tid].z > bonferroni_z_bar(len(stats)) for tid in other_ids)
+
+
+def test_token_wake_stats_respects_min_count():
+    token_ids = np.array([1, 1, 1, 2])
+    wake_soon = np.array([True, True, True, True])
+    stats = token_wake_stats(token_ids, wake_soon, min_count=5)
+    assert stats == []  # neither token reaches min_count
+
+
+def test_bonferroni_z_bar_rises_with_more_tests():
+    z1 = bonferroni_z_bar(n_tests=1, alpha=0.05)
+    z_many = bonferroni_z_bar(n_tests=30000, alpha=0.05)
+    assert z_many > z1 > 1.5
+    # sanity check against the well-known single-test two-sided z ~1.96
+    assert bonferroni_z_bar(n_tests=1, alpha=0.05) == pytest.approx(1.645, abs=0.01)
+
+
+def test_signal_discovered_tokens_marks_selected_ids():
+    token_ids = np.array([1, 2, 3, 2, 1])
+    sig = signal_discovered_tokens(token_ids, marker_token_ids={2})
+    assert sig.tolist() == [0.0, 1.0, 0.0, 1.0, 0.0]
+
+
+def test_signal_discovered_tokens_empty_selection_is_all_zero():
+    token_ids = np.array([1, 2, 3])
+    sig = signal_discovered_tokens(token_ids, marker_token_ids=set())
+    assert sig.tolist() == [0.0, 0.0, 0.0]
+
+
+def test_ensemble_vote_counts_agreement():
+    a = np.array([0.0, 3.0, 3.0, 0.0])
+    b = np.array([0.0, 3.0, 0.0, 3.0])
+    c = np.array([0.0, 0.0, 3.0, 3.0])
+    votes = ensemble_vote([a, b, c], threshold=2.0)
+    assert votes.tolist() == [0.0, 2.0, 2.0, 2.0]
+
+
+def test_ensemble_vote_requires_min_votes_to_beat_lone_false_positive():
+    # A lone noisy signal fires alone at step 5 (1 vote); the other two agree
+    # at step 10 (2 votes). Thresholding the ensemble at 1.5 votes keeps the
+    # real agreement and drops the singleton false alarm.
+    a = np.zeros(20); a[5] = 5.0; a[10] = 5.0
+    b = np.zeros(20); b[10] = 5.0
+    c = np.zeros(20); c[10] = 5.0
+    votes = ensemble_vote([a, b, c], threshold=2.0)
+    fired = np.flatnonzero(votes > 1.5)
+    assert fired.tolist() == [10]
+
+
+def test_ensemble_vote_rejects_empty_input():
+    with pytest.raises(ValueError):
+        ensemble_vote([])
 
 
 def test_transfer_math():
