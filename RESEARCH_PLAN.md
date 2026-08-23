@@ -29,16 +29,20 @@ stall). Read this section first; where the older sections below still say
   (CoT mean z +9.7 vs. null) but not tightly/detectably enough for a coarse
   boundary trigger either. **Both proactive routes ruled out** → build
   reactive. The prediction negative + burstiness become supporting analysis.
-- **Phase 2a — reactive-residency simulator.** (`wakekv/residency.py`)
-  Reactive beats frozen (FlexiCache-style) at matched memory in every
-  regime and scale tested — CoT, multi-turn, 1.5B/3B/8B all agree, roughly
-  half the miss rate. C2 supported *in principle*. The simulator also now
-  models destructive eviction (`simulate_evict`, ReasonAlloc-style) at the
-  *same* matched budget as reactive — no interpolation needed, since both
-  share the identical LRU eviction schedule and only diverge in what
-  happens to a page after demotion. This gives a first, simulator-level C3
-  read (reversible offload beats destructive eviction in principle) ahead
-  of the real-system head-to-head in Phase 3.
+- **Phase 2a — reactive-residency simulator, run on real logs.**
+  (`wakekv/residency.py`, `notes/phase2a_residency_results.md`) Reactive
+  beats frozen (FlexiCache-style) at matched memory at every comparable
+  point across all 4 real model/task combos tested — CoT, multi-turn,
+  NIAH, 1.5B/3B/8B all agree (13/13). C2 supported on real data, not just
+  in principle. The simulator also models destructive eviction
+  (`simulate_evict`, ReasonAlloc-style) at the *same* matched budget as
+  reactive — no interpolation needed, since both share the identical LRU
+  eviction schedule up to the first recovery event. Run on real logs:
+  reactive beats evict at 15/16 matched budgets; the one exception (8B/cot,
+  tightest budget) is explained by resident-set composition drift after
+  a recovery event, not a flaw in the comparison — see the notes file. C3
+  supported on real data at the simulator level, ahead of the real-system
+  head-to-head in Phase 3.
 - **Phase 2b — shim + preliminary real-system numbers (M2b-1a/1b/M2b-2).**
   `wakekv/flexicache_shim.py` turns FlexiCache into WakeKV reactive via two
   config overrides; verified correctness-preserving (M2b-1b, `identity`
@@ -75,7 +79,7 @@ stall). Read this section first; where the older sections below still say
 |---|---|---|
 | Phase 0 | Premise: heads churn during decoding | ✅ done (G0 pass, incl. 8B) |
 | Phase 1 | Cheap prediction fails → reactive design | ✅ done (G1 → reactive) |
-| Phase 2a: simulator | Reactive beats frozen *in principle* (C2) and beats destructive eviction *in principle* (C3), on logged attention, at page granularity | ✅ done |
+| Phase 2a: simulator | Reactive beats frozen (C2, 13/13) and beats destructive eviction (C3, 15/16) on real logged attention, at page granularity | ✅ done |
 | Phase 2b: real system | Measured memory saved, PCIe **stall time**, throughput in vLLM | ⏳ preliminary (M2b-2 done incl. first sparse-only reading; stall time, scale, real-system C3, full sparse×rerank ablation remain) |
 | Phase 3: evaluation | 7–8B models, LongBench/RULER/SCBench **quality**, real baselines | ❌ not started |
 
