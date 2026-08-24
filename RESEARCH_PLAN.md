@@ -46,7 +46,6 @@ stall). Read this section first; where the older sections below still say
   the same model Phase 2b's real system uses — the first model with both
   simulator and real-system coverage, though its own G0/G1 legs haven't
   been run yet.
-  head-to-head in Phase 3.
 - **Phase 2b — shim + preliminary real-system numbers (M2b-1a/1b/M2b-2).**
   `wakekv/flexicache_shim.py` turns FlexiCache into WakeKV reactive via two
   config overrides; verified correctness-preserving (M2b-1b, `identity`
