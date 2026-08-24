@@ -2,15 +2,23 @@
 """Phase 2 (Option B): reactive-residency simulation over Phase-0 logs.
 
 Replays each run's logged attention through Full / Frozen (FlexiCache-style)
-/ Reactive (WakeKV) residency policies, sweeping the per-head page budget,
-and reports the miss-rate-vs-memory tradeoff. The headline test (C2): at
+/ Reactive (WakeKV) / Evict (LRU-ablation foil) residency policies, plus
+three Phase-3 baseline reimplementations (SnapKV, uniform R-KV,
+ReasonAlloc — see wakekv/residency.py's module docstring for what each
+actually is and what's simplified), sweeping the per-head page budget, and
+reports the miss-rate-vs-memory tradeoff. The headline test (C2): at
 matched GPU memory, does reactive miss less than frozen in shifting-role
-regimes (long CoT, multi-turn)?
+regimes (long CoT, multi-turn)? Also C3 (reactive vs. evict) and reactive
+vs. each real baseline, all at matched budget.
 
   python scripts/simulate_residency.py runs/<model>/<task> \
       [--budgets 8 16 32 64] [--page-size 16] [--unstable-frac 0.25] [--refresh 16]
+      [--rkv-buffer 128] [--reasonalloc-delta 128] [--reasonalloc-mu 0.25]
 
-No GPU. Writes residency.md into the task dir.
+No GPU. Writes residency.md into the task dir. The three baseline
+policies need topk_val (attention weights, not just page ids) in the log
+— every Phase-0 run has it (wakekv/instrument.py always logs it) — and
+are skipped with a warning, per run, if it's missing.
 """
 
 from __future__ import annotations
@@ -24,7 +32,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from wakekv.residency import sweep, wanted_stream_from_log
+from wakekv.residency import page_score_stream_from_log, sweep, wanted_stream_from_log
+
+BASELINE_POLICIES = ("snapkv", "rkv_uniform", "reasonalloc")
 
 
 def main() -> None:
@@ -34,6 +44,12 @@ def main() -> None:
     ap.add_argument("--page-size", type=int, default=16)
     ap.add_argument("--unstable-frac", type=float, default=0.25)
     ap.add_argument("--refresh", type=int, default=16)
+    ap.add_argument("--rkv-buffer", type=int, default=128,
+                    help="uniform R-KV: steps between recompression passes")
+    ap.add_argument("--reasonalloc-delta", type=int, default=128,
+                    help="ReasonAlloc: steps between per-head reallocation")
+    ap.add_argument("--reasonalloc-mu", type=float, default=0.25,
+                    help="ReasonAlloc: starvation-floor fraction of a layer's budget")
     args = ap.parse_args()
 
     task_dir = Path(args.task_dir)
@@ -44,13 +60,33 @@ def main() -> None:
     # Aggregate stats across runs, keyed by (policy, budget).
     agg: dict[tuple, list] = defaultdict(list)
     total_steps = 0
+    baselines_skipped = 0
     for rd in run_dirs:
         data = np.load(rd / "log.npz")
         stream, n_units = wanted_stream_from_log(data["topk_idx"], args.page_size)
         total_steps += len(stream)
+
+        scored_stream = n_heads = None
+        if "topk_val" in data:
+            scored_stream, _ = page_score_stream_from_log(
+                data["topk_idx"], data["topk_val"], args.page_size
+            )
+            n_heads = int(data["topk_idx"].shape[2])  # [S, L, H, K]
+        else:
+            baselines_skipped += 1
+            print(f"[warn] {rd.name}: no topk_val in log, skipping SnapKV/"
+                  "R-KV/ReasonAlloc for this run", file=sys.stderr)
+
         for st in sweep(stream, n_units, args.budgets,
+                        scored_stream=scored_stream, n_heads=n_heads,
+                        rkv_buffer=args.rkv_buffer,
+                        reasonalloc_delta=args.reasonalloc_delta,
+                        reasonalloc_mu=args.reasonalloc_mu,
                         unstable_frac=args.unstable_frac, refresh=args.refresh):
             agg[(st.policy, st.budget)].append(st)
+
+    def have(key) -> bool:
+        return bool(agg.get(key))
 
     def mean(key, attr):
         return float(np.mean([getattr(s, attr) for s in agg[key]]))
@@ -71,13 +107,19 @@ def main() -> None:
                  f"{mean(fk,'mean_resident_pages'):.0f} | "
                  f"{int(mean(fk,'peak_resident_pages'))} | 0 | 0 |")
     for b in args.budgets:
-        for pol in ("frozen", "reactive", "evict"):
+        for pol in ("frozen", "reactive", "evict", *BASELINE_POLICIES):
             k = (pol, b)
+            if not have(k):
+                continue  # baseline skipped this budget (no topk_val in any run)
             lines.append(
                 f"| {pol} | {b} | {mean(k,'miss_rate'):.3f} | "
                 f"{mean(k,'mean_resident_pages'):.0f} | "
                 f"{int(mean(k,'peak_resident_pages'))} | "
                 f"{int(mean(k,'fetches'))} | {int(mean(k,'stall_steps'))} |")
+    if baselines_skipped:
+        lines.append(f"\n*({baselines_skipped}/{len(run_dirs)} runs had no "
+                     "topk_val — snapkv/rkv_uniform/reasonalloc rows above "
+                     "are averaged over the remaining runs only.)*")
 
     # Verdict via the miss-vs-memory PARETO frontier, NOT same-budget rows:
     # frozen keeps its 'unstable' heads fully resident, so at the same budget
@@ -156,6 +198,56 @@ def main() -> None:
               "gets it back at all. A win here isolates reversibility "
               "itself as the source of the advantage, holding dynamism, "
               "budget, and eviction order fixed on both sides."]
+
+    # Phase 3: reactive vs. each real baseline reimplementation, same
+    # budget. Same matched-budget logic as C3 above (no interpolation
+    # needed -- both sides use the identical `budget` parameter).
+    baseline_labels = {
+        "snapkv": "SnapKV (frozen prefill selection)",
+        "rkv_uniform": "uniform R-KV (importance-ranked destructive pruning)",
+        "reasonalloc": "ReasonAlloc (per-head reallocation, destructive)",
+    }
+    any_baseline_data = False
+    for pol in BASELINE_POLICIES:
+        rows = [b for b in args.budgets if have(("reactive", b)) and have((pol, b))]
+        if not rows:
+            continue
+        any_baseline_data = True
+        wins_b = 0
+        detail_b = []
+        for b in rows:
+            rr = mean(("reactive", b), "miss_rate")
+            pr = mean((pol, b), "miss_rate")
+            rm = mean(("reactive", b), "mean_resident_pages")
+            pm = mean((pol, b), "mean_resident_pages")
+            if rr <= pr + 1e-9:
+                wins_b += 1
+            detail_b.append(
+                f"  - budget {b} (~{rm:.0f} vs ~{pm:.0f} pages): "
+                f"reactive {rr:.3f} vs {pol} {pr:.3f} "
+                f"{'(reactive better)' if rr <= pr else f'({pol} better)'}"
+            )
+        lines += ["", f"## Reactive vs. {baseline_labels[pol]}, same budget",
+                  f"Reactive misses <= {pol} at **{wins_b}/{len(rows)}** matched "
+                  "budgets.", *detail_b]
+    if any_baseline_data:
+        lines += ["", "Caveats specific to these three (see "
+                  "`wakekv/residency.py`'s docstrings for exact simplifications "
+                  "and confidence levels): \"same budget\" is a NOMINAL target "
+                  "for rkv_uniform/reasonalloc, not continuous capping like "
+                  "reactive/evict -- they only prune at periodic buffer/delta "
+                  "boundaries (default every 128 steps), so realized mean "
+                  "resident pages (shown above) can run well above the budget "
+                  "between prunings; compare the printed page counts, not just "
+                  "the budget label. SnapKV's observation window is "
+                  "degraded to a single query (this log's step 0), not the "
+                  "paper's multi-token window; R-KV/ReasonAlloc's importance-"
+                  "vs-redundancy joint score is importance-only, since raw key "
+                  "vectors (needed for redundancy) aren't logged; "
+                  "ReasonAlloc's offline per-layer budget calibration is "
+                  "substituted with an equal split, not the paper's "
+                  "Reasoning-Wave allocation. Each is a real, cited "
+                  "reimplementation with a declared gap, not a guess."]
 
     (task_dir / "residency.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
