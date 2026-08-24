@@ -18,7 +18,8 @@
 # Usage:  bash scripts/wakekv_longbench_check.sh
 # Env:    WAKEKV_ROOT, FLEXI_ROOT, LONGBENCH_TASKS, SAMPLES_PER_TASK,
 #         RERANK_INTERVAL, BATCH_SIZE, WAKEKV_MAX_MODEL_LEN,
-#         TORCH_CUDA_ARCH_LIST (auto-detected if unset -- see wakekv_gpu_lib.sh)
+#         TORCH_CUDA_ARCH_LIST, CONDA_SH (both auto-detected if unset --
+#         see wakekv_gpu_lib.sh)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,7 +33,7 @@ RERANK_INTERVAL="${RERANK_INTERVAL:-1}"
 BATCH_SIZE="${BATCH_SIZE:-4}"
 export WAKEKV_MAX_MODEL_LEN="${WAKEKV_MAX_MODEL_LEN:-8192}"
 
-source /opt/conda/etc/profile.d/conda.sh
+source "$(detect_conda_sh)"
 conda activate FlexiCache
 export PYTHONPATH="$WAKEKV_ROOT:${PYTHONPATH:-}"
 export VLLM_USE_V1=1

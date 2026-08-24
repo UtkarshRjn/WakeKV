@@ -21,7 +21,8 @@
 # Usage:  bash scripts/wakekv_quality_pareto.sh
 # Env:    INTERVALS (default "1 2 4 8 16"), LONGBENCH_TASKS, SAMPLES_PER_TASK,
 #         BATCH_SIZE, WAKEKV_MAX_MODEL_LEN, WAKEKV_ROOT, FLEXI_ROOT,
-#         TORCH_CUDA_ARCH_LIST (auto-detected if unset -- see wakekv_gpu_lib.sh)
+#         TORCH_CUDA_ARCH_LIST, CONDA_SH (both auto-detected if unset --
+#         see wakekv_gpu_lib.sh)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,7 +36,7 @@ SAMPLES_PER_TASK="${SAMPLES_PER_TASK:-30}"
 BATCH_SIZE="${BATCH_SIZE:-4}"
 export WAKEKV_MAX_MODEL_LEN="${WAKEKV_MAX_MODEL_LEN:-8192}"
 
-source /opt/conda/etc/profile.d/conda.sh
+source "$(detect_conda_sh)"
 conda activate FlexiCache
 export PYTHONPATH="$WAKEKV_ROOT:${PYTHONPATH:-}"
 export VLLM_USE_V1=1 VLLM_ATTENTION_BACKEND=TRITON_ATTN_VLLM_V1
