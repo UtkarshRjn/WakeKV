@@ -68,13 +68,32 @@ stall). Read this section first; where the older sections below still say
   `notes/wakekv_m2b2_sweep_a30.md`. Still missing: the complementary cell
   (64 dense heads reranked every step) that would isolate
   rerank-frequency's own contribution independent of dense-head count.
-- **Phase 3 (real eval) — not started.** No baseline reimplementations
-  (ReasonAlloc, FullKV, SnapKV, uniform R-KV), no floor ablation (μ→0), no
-  *real-system* evict-vs-offload head-to-head (C3 currently has a
-  simulator-level reading only — see Phase 2a above), no full
-  LongBench/RULER/SCBench harness beyond the narrow M2b-2 eval. This is
-  where C3 and C5 get resolved on real systems and where the paper's
-  final headline numbers come from.
+- **Phase 3 (real eval) — not started; one piece pre-wired.**
+  `wakekv/reactive_controller.py`'s `ReactiveController` now has a
+  `demotion="evict"` mode (ReasonAlloc-style, destructive) alongside the
+  existing `"offload"` mode — same class, same `on_unit_lru` entry point,
+  regression-tested against `simulate_evict`'s already-real-data-validated
+  numbers. This is the WakeKV-side half of E3c (real-system C3
+  head-to-head). **Not done:** wiring it into the actual FlexiCache shim.
+  Unlike "reactive" mode (a free 2-config-value override that reuses
+  FlexiCache's own reversible promote/demote code), a real evict mode
+  needs FlexiCache's *own* demotion mechanism patched so a freed block
+  isn't recoverable — that requires reading their source (not vendored
+  here) to find the right hook, which hasn't been done. No baseline
+  reimplementations otherwise (SnapKV, uniform R-KV, ReasonAlloc-via-their-
+  own-allocator) — deliberately not attempted blind, since a subtly wrong
+  reimplementation of a published baseline is worse than not having one;
+  each needs dedicated reading of its source paper first. No floor
+  ablation (μ→0), no full LongBench/RULER/SCBench harness beyond the
+  narrow M2b-2 eval. This is where C3 and C5 get resolved on real systems
+  and where the paper's final headline numbers come from.
+  - **Cheap ablation that may already work with zero new code:** the
+    "static-offline" baseline (controller frozen after prefill) might be
+    achievable via existing `reactive` mode with a very large
+    `--rerank-interval` (FlexiCache reranks at
+    `step % rerank_frequency == 0`, so a large enough interval means it
+    effectively only reranks once). Untested — worth trying before writing
+    a dedicated mode.
 
 ### Evidence ladder — what each stage establishes
 
