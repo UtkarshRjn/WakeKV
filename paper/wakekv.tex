@@ -45,17 +45,22 @@ $0.41$--$0.72$ across four candidates. Wake-ups are temporally bursty
 (mean concentration $z = +9.7$ vs. shuffle null on CoT) but not tightly
 detectable enough for a coarse trigger either. We therefore argue for a
 \emph{reactive} design --- demote cooling heads to CPU and fetch on
-demand --- and validate it against a FlexiCache-style frozen policy in a
-page-granularity residency simulator over the same logged attention.
-Reactive dominates frozen on the miss-vs-memory Pareto at every
-operating point in both regimes, achieving roughly half the miss rate
-at matched memory. Preliminary real-system measurements on the A30
-(Mistral-7B via a FlexiCache/vLLM shim) confirm the direction: reactive
-residency achieves 1.34--2.33$\times$ throughput at 95--99\% LongBench
-mean quality vs.\ stock FlexiCache across the rerank-interval sweep.
-Broader real-system evaluation (larger models, multi-turn, matched
-sparse-only baseline) is future work; the negative prediction result
-and the reactive-vs-frozen Pareto stand on their own.
+demand --- and validate it, at page granularity over the same logged
+attention, against two competitors: a FlexiCache-style frozen policy and
+a ReasonAlloc-style policy that shares reactive's exact LRU schedule but
+demotes destructively rather than reversibly. Across five real
+model/regime combinations (three model families, 1.5B--7B, three
+regimes), reactive beats frozen at every comparable matched-memory
+operating point (17/17) and beats destructive demotion at matched budget
+in 19 of 20 settings --- isolating reversibility itself, not just
+dynamism, as a source of the advantage. Preliminary real-system
+measurements on the A30 (Mistral-7B via a FlexiCache/vLLM shim) confirm
+the frozen-vs-reactive direction: reactive residency achieves
+1.34--2.33$\times$ throughput at 95--99\% LongBench mean quality vs.\
+stock FlexiCache across the rerank-interval sweep. Broader real-system
+evaluation (larger models, multi-turn, a real-system reversible-vs-evict
+head-to-head) is future work; the negative prediction result and the
+simulator-level Pareto and reversibility results stand on their own.
 \end{abstract}
 
 \section{Introduction}
@@ -75,22 +80,28 @@ Our contributions are:
         regimes, with two novel supporting regimes (long CoT, scripted
         multi-turn recall) that competing frozen-role methods do not
         evaluate (\S\ref{sec:churn}).
-    \item An \emph{honest negative} result: cheap per-head signals cannot
-        predict wake-ups well enough to prefetch under a fair evaluation
-        (\S\ref{sec:predict}).
+    \item An \emph{honest negative} result: cheap per-head signals, and
+        an ensemble of them, cannot predict wake-ups well enough to
+        prefetch under a fair evaluation; a structurally different
+        signal (generated-token identity, discovered without a
+        hand-picked vocabulary) does clear a useful bar, but only in
+        long-CoT reasoning traces (\S\ref{sec:predict}).
     \item A characterization of wake-up burstiness --- real but not
         tightly detectable --- ruling out coarse boundary triggers as
         well (\S\ref{sec:cluster}).
     \item A page-granularity residency simulator showing reactive LRU +
         fetch-on-demand dominates FlexiCache-style frozen classification
-        on the memory/miss Pareto in shifting-role regimes
-        (\S\ref{sec:sim}).
+        on the memory/miss Pareto (C2), and that reversible offload
+        specifically --- not just LRU dynamism --- beats destructive
+        eviction at matched budget (C3), across five real model/regime
+        combinations (\S\ref{sec:sim}).
 \end{enumerate}
 
 \textbf{Explicit scope.} The paper's primary contributions are the
 measurement of head non-stationarity, the negative prediction result,
-and the simulator-level reactive-vs-frozen Pareto (contributions 1--4
-above). A preliminary real-system evaluation (\S\ref{sec:limits},
+and the simulator-level reactive-vs-frozen and reversible-vs-evict
+results (contributions 1--4 above). A preliminary real-system evaluation
+(\S\ref{sec:limits},
 Table~\ref{tab:m2b2}) confirms the direction on physical hardware but
 is narrow in scope: single model, single input/output regime, small
 sample count, one A30. A full serving-system evaluation across
@@ -265,6 +276,43 @@ wins at 8B), but none crosses a usable operating point.}
 for the four signals on CoT, showing all four hug the low-precision
 corner.
 
+\textbf{Two follow-up candidates.} Before committing to the reactive
+design, we tested two structurally different ideas the four
+attention-derived signals above don't cover.
+
+\emph{Ensemble voting} combines the four causally z-scored signals,
+firing when $\geq 2$ of 4 agree. This is a negative result: across all
+four regimes tested (multi-turn, NIAH, CoT at 1.5B and 8B), the ensemble
+never beats the single best individual signal (F1 $0.17$ vs.\ drift's
+$0.31$ on multi-turn; $0.18$ vs.\ $0.26$ on NIAH; $0.09$ vs.\ $0.10$ on
+CoT~8B; $0.13$ vs.\ $0.14$ on CoT~1.5B). The four signals' false
+positives are not decorrelated enough for agreement to help --- three of
+the four are all derived from top-$k$ page-overlap statistics, so they
+tend to fire together or not at all.
+
+\emph{Token/wake correlation} asks whether the identity of the just-generated
+token --- not any head's attention --- predicts a wake burst. Rather than
+positing a hand-picked marker vocabulary (an uncited, arbitrary guess that
+would be circular if tuned against results), we scan every generated
+token id, test each with a two-proportion $z$-test against the run's base
+wake rate, Bonferroni-correct across every token tested, and evaluate the
+surviving markers on a held-out half of the data disjoint from what
+selected them. The result is regime-specific: zero tokens survive the
+Bonferroni bar on multi-turn or NIAH, but on both CoT runs (DeepSeek-R1-Distill,
+reasoning traces) the discovered markers reach held-out F1 $0.53$--$0.62$
+at lead 32 --- $4$--$5\times$ every other signal in this paper on the
+same data, and, because of the discovery/held-out split, an honest number
+rather than an oracle-tuned one. This supports rather than contradicts
+the reactive design: it is CoT-specific (token identity is a
+model-vocabulary-specific signal needing per-model recalibration, unlike
+the architecture-generic attention statistics above), recall is still
+$0.68$--$0.89$ (not $1.0$, so reactive fallback stays mandatory
+regardless), and precision $0.43$--$0.48$ still means roughly half of
+triggered prefetches would be unnecessary. We report it as evidence that
+we searched the design space thoroughly --- including the most
+promising direction, generated-token identity --- before committing to
+reactive, not as a mechanism WakeKV deploys.
+
 \section{Are Wake-ups Clustered in Time?}
 \label{sec:cluster}
 
@@ -303,7 +351,7 @@ overlaid.
 
 Given prediction fails, we validate a reactive design: demote cooling
 pages to a CPU reservoir, fetch on demand when a head accesses a
-demoted page. We simulate three policies at page granularity over the
+demoted page. We simulate four policies at page granularity over the
 same logged attention:
 
 \begin{description}
@@ -317,13 +365,21 @@ same logged attention:
         via LRU; a wanted page in the CPU reservoir is fetched on
         demand and promoted, evicting the least-recently-wanted page
         back to the reservoir. Nothing is destroyed.
+    \item[Evict (ReasonAlloc-style)] identical LRU cap and eviction
+        \emph{schedule} to Reactive, same budget $B$ --- but demotion is
+        destructive: an evicted page has no reservoir, so a later want
+        of it misses again, forever. This isolates \emph{reversibility}
+        itself as a variable, holding dynamism, budget, and eviction
+        order fixed on both sides.
 \end{description}
 
-\textbf{Result.} Table~\ref{tab:sim} interpolates reactive's
-miss rate to each frozen operating point's mean memory (a matched-memory
-comparison, since at the same budget label the two policies sit at
-different memory). Reactive dominates frozen at every operating point on
-both regimes, at roughly half the miss rate.
+\textbf{C2 result: reactive beats frozen.} Table~\ref{tab:sim}
+interpolates reactive's miss rate to each frozen operating point's mean
+memory (a matched-memory comparison, since at the same budget label the
+two policies sit at different memory). Reactive dominates frozen at
+every comparable operating point across all five model/regime combos
+tested (17/17), at roughly half the miss rate on the smaller models and
+up to $\sim$$10\times$ on Mistral-7B/NIAH.
 
 \begin{table}[t]
 \centering
@@ -332,27 +388,38 @@ both regimes, at roughly half the miss rate.
 \toprule
 Regime & Model & Mean mem (pages) & Frozen miss & Reactive miss \\
 \midrule
-CoT       & 1.5B & 4980 & 0.395 & 0.215 \\
-CoT       & 1.5B & 6627 & 0.191 & 0.120 \\
+CoT       & 1.5B & 4980 & 0.395 & 0.216 \\
+CoT       & 1.5B & 6627 & 0.191 & 0.121 \\
 CoT       & 1.5B & 8459 & 0.066 & 0.034 \\
 CoT       & 1.5B & 9233 & 0.042 & 0.024 \\
 \midrule
-Multi-turn & 3B & 7918  & 0.491 & 0.394 \\
-Multi-turn & 3B & 11039 & 0.294 & 0.226 \\
+Multi-turn & 3B & 7918  & 0.491 & 0.392 \\
+Multi-turn & 3B & 11039 & 0.294 & 0.234 \\
 Multi-turn & 3B & 15828 & 0.116 & 0.065 \\
+Multi-turn & 3B & 16042 & 0.110 & 0.057 \\
+\midrule
+NIAH & 3B & 34047 & 0.403 & 0.086 \\
 \midrule
 \textbf{CoT} & \textbf{8B} & \textbf{18388} & \textbf{0.455} & \textbf{0.269} \\
 \textbf{CoT} & \textbf{8B} & \textbf{23749} & \textbf{0.257} & \textbf{0.149} \\
 \textbf{CoT} & \textbf{8B} & \textbf{31372} & \textbf{0.102} & \textbf{0.060} \\
 \textbf{CoT} & \textbf{8B} & \textbf{37321} & \textbf{0.045} & \textbf{0.025} \\
+\midrule
+NIAH & Mistral-7B & 35191 & 0.578 & 0.164 \\
+NIAH & Mistral-7B & 38763 & 0.504 & 0.146 \\
+NIAH & Mistral-7B & 45713 & 0.441 & 0.110 \\
+NIAH & Mistral-7B & 56297 & 0.405 & 0.055 \\
 \bottomrule
 \end{tabular}
-\caption{Matched-memory miss rates from the residency simulator.
-Reactive is interpolated onto each frozen operating point's mean
-resident memory. Reactive wins 4/4 on every regime and every scale,
-at roughly half the miss rate. At 8B, reactive at budget $B{=}64$
-misses $\approx 3\times$ less than frozen at essentially the same
-memory ($0.014$ at $39{,}178$ pages vs $0.045$ at $37{,}321$ pages).}
+\caption{Matched-memory miss rates from the residency simulator, all
+five real model/regime combos tested. Reactive is interpolated onto
+each frozen operating point's mean resident memory; NIAH/3B has only
+one comparable point because reactive's memory footprint stayed below
+all but the smallest frozen budget in that run, not a partial result.
+Reactive wins 17/17 comparable points. Mistral-7B is the same model
+the preliminary real-system evaluation (\S\ref{sec:limits}) uses ---
+the first model with both simulator and real-system coverage, though
+its own churn (\S\ref{sec:churn}) has not separately been measured.}
 \label{tab:sim}
 \end{table}
 
@@ -368,6 +435,67 @@ question the follow-up (\S\ref{sec:limits}) addresses.
 
 \NEEDFIG~Figure~\ref{fig:pareto}: memory-vs-miss Pareto curves for
 frozen and reactive across the sweep of $B$, for both regimes.
+
+\textbf{C3 result: reversibility itself, isolated.} Reactive and Evict
+share the identical LRU rule and budget, so no memory-matching
+interpolation is needed --- any miss-rate gap is attributable to
+demotion consequence alone, not to a confound in dynamism or budget.
+Table~\ref{tab:evict} reports reactive vs.\ evict at the same budget
+across all five combos. Reactive wins 19/20 matched budgets; the one
+exception is CoT/8B at the tightest budget ($B{=}8$: reactive $0.632$
+vs.\ evict $0.624$, evict slightly better). We attribute this to a
+real second-order effect rather than noise in the comparison: the two
+policies' eviction \emph{schedules} are only provably identical up to
+the first page reactive recovers that evict left destroyed --- after
+that, reactive's resident set literally contains content evict's
+doesn't, so a later eviction round can legitimately pick a different
+page under each policy. At the tightest budget on the highest-churn
+regime, recovery events are most frequent, so this composition drift
+has the most room to compound, which is exactly the one place it
+surfaces. It does not undermine the 19/20 result.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{llrrr}
+\toprule
+Regime & Model & Budget $B$ & Reactive miss & Evict miss \\
+\midrule
+Multi-turn & 3B & 8  & 0.631 & 0.651 \\
+Multi-turn & 3B & 16 & 0.300 & 0.369 \\
+Multi-turn & 3B & 32 & 0.010 & 0.025 \\
+Multi-turn & 3B & 64 & 0.000 & 0.000 \\
+\midrule
+NIAH & 3B & 8  & 0.655 & 0.760 \\
+NIAH & 3B & 16 & 0.409 & 0.617 \\
+NIAH & 3B & 32 & 0.187 & 0.398 \\
+NIAH & 3B & 64 & 0.076 & 0.215 \\
+\midrule
+\textbf{CoT} & \textbf{1.5B} & \textbf{8}  & \textbf{0.542} & \textbf{0.543} \\
+\textbf{CoT} & \textbf{1.5B} & \textbf{16} & \textbf{0.221} & \textbf{0.263} \\
+\textbf{CoT} & \textbf{1.5B} & \textbf{32} & \textbf{0.040} & \textbf{0.074} \\
+\textbf{CoT} & \textbf{1.5B} & \textbf{64} & \textbf{0.005} & \textbf{0.013} \\
+\midrule
+CoT & 8B & 8  & 0.632 & \textbf{0.624 (evict better)} \\
+CoT & 8B & 16 & 0.338 & 0.373 \\
+CoT & 8B & 32 & 0.090 & 0.145 \\
+CoT & 8B & 64 & 0.014 & 0.035 \\
+\midrule
+NIAH & Mistral-7B & 8  & 0.650 & 0.761 \\
+NIAH & Mistral-7B & 16 & 0.443 & 0.613 \\
+NIAH & Mistral-7B & 32 & 0.180 & 0.309 \\
+NIAH & Mistral-7B & 64 & 0.048 & 0.091 \\
+\bottomrule
+\end{tabular}
+\caption{Reactive (offload) vs.\ evict (destroy) at the same budget,
+all five real model/regime combos. No interpolation --- both policies
+share the identical LRU cap and eviction order, so demotion consequence
+is the only variable. 19/20 matched budgets favor reversibility; the
+sole exception (bold row) is explained in the main text. This is the
+first real-log confirmation of C3; previously it had only a
+synthetic-data check.}
+\label{tab:evict}
+\end{table}
 
 \section{Related Work}
 \label{sec:related}
@@ -500,11 +628,23 @@ throughput); (iv) run the complementary sparse$\times$rerank cell ---
 FlexiCache's 64-dense-head classification reranked every step,
 matching WakeKV's native cadence --- to isolate rerank frequency's own
 contribution from the dense-head-count effect already isolated above;
-(v) run a real-system evict-vs-offload head-to-head (C3); the
-simulator (\S\ref{sec:sim}) already has a first, matched-budget
-reading favoring reversible offload, but \S\ref{sec:sim}'s prose and
-table do not yet report it and the real-system comparison remains
-undone.
+(v) run a real-system evict-vs-offload head-to-head (C3). The
+simulator-level reading (\S\ref{sec:sim}, Table~\ref{tab:evict}) now
+supports reversible offload on real logs across all five model/regime
+combos (19/20 matched budgets). The controller-level code for a real
+evict mode is written and tested (\texttt{ReactiveController}'s
+\texttt{demotion="evict"}, validated against the simulator's numbers),
+but wiring it into the FlexiCache shim specifically is not a simple
+config override the way reactive mode is: tracing FlexiCache's actual
+promote/demote path shows reversibility is an emergent property of
+three cooperating structures (a generic GPU block free-list with no
+memory of prior contents, an unconditional per-token CPU mirror, and a
+separately-computed MinMax score cache), and the one clean patch point
+found needs a new per-request state tensor threaded through four
+request-lifecycle methods to avoid a completed request's eviction
+history leaking into a reused batch slot --- not verifiable without a
+live GPU run, so it remains a documented design (not yet implemented)
+rather than a real-system result.
 
 \section*{Reproducibility}
 Source, logs, and results at \NEEDPROSE{GitHub URL after de-anonymize}.
