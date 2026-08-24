@@ -625,6 +625,9 @@ def sweep(
     budgets: list[int],
     scored_stream: ScoredStream | None = None,
     n_heads: int | None = None,
+    rkv_buffer: int = 128,
+    reasonalloc_delta: int = 128,
+    reasonalloc_mu: float = 0.25,
     **frozen_kw,
 ) -> list[SimStats]:
     """Full once, plus reactive, evict, and frozen at each budget. When
@@ -634,7 +637,10 @@ def sweep(
     snapkv, rkv_uniform, and (if `n_heads` is known too) reasonalloc.
     Skipped when scores aren't available -- e.g. the synthetic page-only
     streams in tests/test_residency.py -- since there's no attention
-    weight to select or threshold on.
+    weight to select or threshold on. `rkv_buffer`/`reasonalloc_delta`/
+    `reasonalloc_mu` forward to those two policies' own parameters
+    (see their docstrings); irrelevant (and unused) when scores aren't
+    supplied.
     """
     out = [simulate_full(stream, n_units)]
     for b in budgets:
@@ -643,7 +649,10 @@ def sweep(
         out.append(simulate_frozen(stream, n_units, b, **frozen_kw))
         if scored_stream is not None:
             out.append(simulate_snapkv(stream, n_units, b, scored_stream[0]))
-            out.append(simulate_rkv_uniform(scored_stream, n_units, b))
+            out.append(simulate_rkv_uniform(scored_stream, n_units, b, buffer=rkv_buffer))
             if n_heads:
-                out.append(simulate_reasonalloc(scored_stream, n_units, n_heads, b))
+                out.append(simulate_reasonalloc(
+                    scored_stream, n_units, n_heads, b,
+                    delta=reasonalloc_delta, mu=reasonalloc_mu,
+                ))
     return out
