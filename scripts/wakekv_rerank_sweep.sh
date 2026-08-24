@@ -22,7 +22,8 @@
 #
 # Usage:  bash scripts/wakekv_rerank_sweep.sh
 # Env:    WAKEKV_ROOT, FLEXI_ROOT, INTERVALS, OUTPUT_LEN, NUM_PROMPTS, INPUT_LEN,
-#         TORCH_CUDA_ARCH_LIST (auto-detected if unset -- see wakekv_gpu_lib.sh),
+#         TORCH_CUDA_ARCH_LIST, CONDA_SH (both auto-detected if unset --
+#         see wakekv_gpu_lib.sh),
 #         GPU_MEM_UTIL, MAX_MODEL_LEN, MAX_BATCHED_TOKENS, MAX_NUM_SEQS
 set -euo pipefail
 
@@ -40,7 +41,7 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-10240}"
 MAX_BATCHED_TOKENS="${MAX_BATCHED_TOKENS:-8192}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-16}"
 
-source /opt/conda/etc/profile.d/conda.sh
+source "$(detect_conda_sh)"
 conda activate FlexiCache
 export PYTHONPATH="$WAKEKV_ROOT:${PYTHONPATH:-}"
 export VLLM_USE_V1=1
