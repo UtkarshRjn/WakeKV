@@ -91,6 +91,22 @@ def main() -> None:
     def mean(key, attr):
         return float(np.mean([getattr(s, attr) for s in agg[key]]))
 
+    def pareto_front(policy: str, budgets) -> list[tuple[float, float]]:
+        """`policy`'s own (mean resident pages, miss rate) points across its
+        budget sweep, sorted by memory -- the frontier `interp_miss` walks."""
+        return sorted(
+            (mean((policy, b), "mean_resident_pages"), mean((policy, b), "miss_rate"))
+            for b in budgets if have((policy, b))
+        )
+
+    def interp_miss(front: list[tuple[float, float]], mem: float) -> float | None:
+        """Piecewise-linear interpolation of `front`'s miss rate at memory
+        `mem`; None if `mem` falls outside `front`'s own memory range."""
+        for (m0, r0), (m1, r1) in zip(front, front[1:]):
+            if m0 <= mem <= m1:
+                return r0 if m1 == m0 else r0 + (mem - m0) / (m1 - m0) * (r1 - r0)
+        return None
+
     lines = [f"# Residency simulation — {task_dir}", "",
              f"- runs: {len(run_dirs)}  |  page size: {args.page_size} tokens  |  "
              f"frozen: {int(args.unstable_frac*100)}% heads kept full, "
@@ -125,23 +141,14 @@ def main() -> None:
     # frozen keeps its 'unstable' heads fully resident, so at the same budget
     # label the two policies sit at different memory. The honest comparison
     # interpolates reactive's miss to each frozen point's MEMORY.
-    react_front = sorted(
-        (mean(("reactive", b), "mean_resident_pages"),
-         mean(("reactive", b), "miss_rate")) for b in args.budgets
-    )
-
-    def interp_miss(mem: float) -> float | None:
-        for (m0, r0), (m1, r1) in zip(react_front, react_front[1:]):
-            if m0 <= mem <= m1:
-                return r0 if m1 == m0 else r0 + (mem - m0) / (m1 - m0) * (r1 - r0)
-        return None
+    react_front = pareto_front("reactive", args.budgets)
 
     wins = total = 0
     detail = []
     for b in args.budgets:
         mf = mean(("frozen", b), "mean_resident_pages")
         rf = mean(("frozen", b), "miss_rate")
-        ri = interp_miss(mf)
+        ri = interp_miss(react_front, mf)
         if ri is None:
             continue
         total += 1
@@ -227,9 +234,60 @@ def main() -> None:
                 f"reactive {rr:.3f} vs {pol} {pr:.3f} "
                 f"{'(reactive better)' if rr <= pr else f'({pol} better)'}"
             )
-        lines += ["", f"## Reactive vs. {baseline_labels[pol]}, same budget",
-                  f"Reactive misses <= {pol} at **{wins_b}/{len(rows)}** matched "
-                  "budgets.", *detail_b]
+        lines += ["", f"## Reactive vs. {baseline_labels[pol]} — same NOMINAL budget",
+                  "NOT apples-to-apples (see matched-memory read below) -- "
+                  f"reactive misses <= {pol} at **{wins_b}/{len(rows)}** same-label "
+                  "budgets, but the two sides can sit at very different actual "
+                  "memory (page counts above). Kept for the raw numbers; trust "
+                  "the matched-memory read for the fair comparison.", *detail_b]
+
+    # Matched-MEMORY read per baseline, same logic as the frozen comparison
+    # above: interpolate reactive's own (memory, miss) Pareto front onto
+    # each baseline's ACTUAL realized memory at its own budget sweep, not
+    # the nominal budget label. This is the fair comparison -- the nominal-
+    # budget rows above can have the two sides differing by up to ~9x in
+    # realized memory (see PR discussion), which the interpolation corrects
+    # for exactly the way C2's frozen-vs-reactive read already does.
+    any_matched = False
+    for pol in BASELINE_POLICIES:
+        pol_points = [
+            (mean((pol, b), "mean_resident_pages"), mean((pol, b), "miss_rate"))
+            for b in args.budgets if have((pol, b))
+        ]
+        if not pol_points:
+            continue
+        wins_m = total_m = 0
+        detail_m = []
+        for pm, pr in pol_points:
+            ri = interp_miss(react_front, pm)
+            if ri is None:
+                continue
+            any_matched = True
+            total_m += 1
+            if ri <= pr + 1e-9:
+                wins_m += 1
+            detail_m.append(
+                f"  - at ~{pm:.0f} pages: {pol} {pr:.3f} vs reactive {ri:.3f} "
+                f"{'(reactive better)' if ri <= pr else f'({pol} better)'}"
+            )
+        if total_m == 0:
+            lines += ["", f"## Reactive vs. {baseline_labels[pol]} — matched memory",
+                      f"No {pol} operating point fell inside reactive's own "
+                      "memory range, so no interpolated comparison is possible "
+                      "here (see the nominal-budget numbers above instead)."]
+            continue
+        lines += ["", f"## Reactive vs. {baseline_labels[pol]} — matched memory",
+                  f"Reactive misses <= {pol} at **{wins_m}/{total_m}** matched-"
+                  "memory operating points (reactive's miss rate interpolated "
+                  f"onto {pol}'s own realized memory at each of its budgets).",
+                  *detail_m]
+    if any_matched:
+        lines += ["", "This is the fair reading of the three-baseline "
+                  "comparison: it holds memory constant, the way C2's "
+                  "frozen-vs-reactive read already does, instead of comparing "
+                  "at a shared nominal budget label the two sides realize "
+                  "very differently."]
+
     if any_baseline_data:
         lines += ["", "Caveats specific to these three (see "
                   "`wakekv/residency.py`'s docstrings for exact simplifications "
