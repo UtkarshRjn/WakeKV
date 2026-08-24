@@ -6,8 +6,11 @@ cluster / in [PR #19](https://github.com/UtkarshRjn/dynamic-head-kv/pull/19)'s
 discussion; the numbers are transcribed here so they survive.*
 
 **Status: RUN on real Phase 0/1 logs** — `bash
-scripts/wakekv_simulate_residency_all.sh`, all 4 model/task combos that
-have real logs, page size 16, budgets {8, 16, 32, 64}.
+scripts/wakekv_simulate_residency_all.sh`, all 5 model/task combos that
+have real logs, page size 16, budgets {8, 16, 32, 64}. Includes a
+dedicated Mistral-7B-Instruct-v0.2 / NIAH run (context 8000, 5 seeds) —
+the same model Phase 2b's real system uses, closing the model-overlap gap
+between the simulator and the real-system numbers.
 
 No GPU: this replays *logged* attention (top-k page sets already recorded
 by Phase 0) through three residency policies in pure NumPy — it doesn't
@@ -33,14 +36,16 @@ predict serving throughput or measure real PCIe stall time (that's Phase 2b/3).
 | Qwen2.5-3B-Instruct / niah | 1 (see note) | **1/1** |
 | DeepSeek-R1-Distill-Llama-8B / cot | 4 | **4/4** |
 | DeepSeek-R1-Distill-Qwen-1.5B / cot | 4 | **4/4** |
+| Mistral-7B-Instruct-v0.2 / niah | 4 | **4/4** |
 
-**13/13 — a clean sweep.** At every matched-memory point across every
+**17/17 — a clean sweep.** At every matched-memory point across every
 model/task combo tested, reactive's miss rate is lower than frozen's — in
 several cases by 2x or more (e.g. 8B/cot at ~18k pages: frozen 0.455 vs.
-reactive 0.269). NIAH only has 1 comparable point because reactive's
-memory footprint stayed below all but the smallest frozen budget in that
-run — not a partial result, just fewer points fall inside reactive's
-interpolation range.
+reactive 0.269; Mistral/niah at ~56k pages: frozen 0.405 vs. reactive
+0.055, ~7x). The Qwen/niah run only has 1 comparable point because
+reactive's memory footprint stayed below all but the smallest frozen
+budget in that run — not a partial result, just fewer points fall inside
+reactive's interpolation range.
 
 *Recall the miss asymmetry: a reactive miss is a paid fetch **stall**
 (quality preserved); a frozen miss is a **quality gap** (page unavailable
@@ -56,10 +61,14 @@ the stall cost.*
 | Qwen2.5-3B-Instruct / niah | 4 | **4/4** |
 | DeepSeek-R1-Distill-Llama-8B / cot | 4 | 3/4 |
 | DeepSeek-R1-Distill-Qwen-1.5B / cot | 4 | **4/4** |
+| Mistral-7B-Instruct-v0.2 / niah | 4 | **4/4** |
 
-**15/16.** Reversibility wins essentially everywhere the budget is tight
+**19/20.** Reversibility wins essentially everywhere the budget is tight
 enough for demotion to matter at all (at the largest budgets both policies
-converge to ~0 miss rate, since almost nothing needs to be evicted).
+converge to ~0 miss rate, since almost nothing needs to be evicted). The
+Mistral/niah run has no exception, consistent with the explanation below —
+that single loss was specific to the tightest budget on the highest-churn
+combo (8B/cot), which this run doesn't share.
 
 **The one exception:** 8B/cot at budget=8 (the tightest budget, on the
 largest/highest-churn combo — 1137 wake events): reactive 0.632 vs. evict
@@ -87,8 +96,23 @@ verification. This is the first real-log confirmation for C3 specifically
 (`tests/test_residency.py::test_evict_*`). Together with Phase 0/1
 (`notes/phase01_results.md`), the simulator-level case for WakeKV's two
 central design choices — reactive dynamism (C2) and reversible demotion
-(C3) — is now supported across 4 real model/task combos (2 model families,
-3B–8B, CoT/NIAH/multi-turn).
+(C3) — is now supported across 5 real model/task combos (3 model families,
+1.5B–8B, CoT/NIAH/multi-turn).
+
+**Mistral-7B-Instruct-v0.2 is now the first model with both simulator (2a)
+and real-system (2b) coverage** — it's the same model Phase 2b's real
+vLLM/FlexiCache system uses (`notes/wakekv_m2b2_sweep_a30.md`). Before
+this run, the simulator's wins (Qwen2.5-3B, DeepSeek-R1-Distill 1.5B/8B)
+and the real system's win (Mistral-7B) were on disjoint models — two
+separate pieces of evidence pointing the same direction, but not a single
+continuous chain. This run closes that gap at the 2a/2b level: on the same
+model, the simulator says reactive/reversible residency wins on its logged
+attention, *and* the real system separately confirms a throughput/quality
+win. Note this doesn't yet close the full chain — Mistral-7B's raw Phase 0
+logs exist (needed for this run), but the G0 churn report and a Phase 1
+signal study haven't been run for it, so "does this model's head
+importance actually shift during decoding, the way Qwen/DeepSeek's does"
+is still unconfirmed for Mistral specifically.
 
 **Caveats (same as noted in `wakekv/residency.py` and RESEARCH_PLAN.md):**
 counts *misses*, not stall *time*; page granularity approximated from
