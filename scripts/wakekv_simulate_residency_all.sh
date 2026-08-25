@@ -12,13 +12,22 @@
 #
 # Usage:  bash scripts/wakekv_simulate_residency_all.sh [RUNS_ROOT]
 # Env:    RUNS_ROOT (default "runs")
+#         PYTHON    (default: first of python/python3/$CONDA_ENV that has
+#                    numpy -- see detect_python in wakekv_gpu_lib.sh)
+#         CONDA_ENV (default "FlexiCache") -- only consulted if neither
+#                    python nor python3 on PATH can import numpy
 # Output: <task_dir>/residency.md written as before by simulate_residency.py,
 #         PLUS a combined residency_all.md at the repo root concatenating
 #         every report (with a header naming the model/task) for easy diffing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/wakekv_gpu_lib.sh"
 WAKEKV_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Resolve the interpreter ONCE, up front: this script is pure analysis (numpy
+# only, no GPU), but "python" is not a command on every host, and finding that
+# out per-task-dir would half-write the combined report before failing.
+PYTHON_BIN="$(detect_python)"
 RUNS_ROOT="${1:-$WAKEKV_ROOT/runs}"
 OUT_SUMMARY="$WAKEKV_ROOT/residency_all.md"
 
@@ -46,7 +55,7 @@ for task_dir in "$RUNS_ROOT"/*/*/; do
     echo "=================================================================="
     echo ">>> $(date) | $rel"
     echo "=================================================================="
-    if python "$WAKEKV_ROOT/scripts/simulate_residency.py" "$task_dir"; then
+    if "$PYTHON_BIN" "$WAKEKV_ROOT/scripts/simulate_residency.py" "$task_dir"; then
         {
             echo ""
             echo "<!-- ============ $rel ============ -->"
