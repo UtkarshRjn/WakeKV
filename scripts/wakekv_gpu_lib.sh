@@ -98,3 +98,61 @@ detect_conda_sh() {
        "Set CONDA_SH explicitly to the conda.sh path for this host." >&2
   return 1
 }
+
+# The CPU-only analysis scripts (wakekv_simulate_residency_all.sh) need an
+# interpreter with numpy and nothing else -- no torch, no GPU -- so for them
+# the FlexiCache env is a fallback rather than a requirement, and a host that
+# only ships `python3` is perfectly usable. What varies per host is the NAME:
+# `python` exists on the GPU box but not everywhere, since a bare Debian-ish
+# host installs only `python3`. detect_python() echoes an interpreter that can
+# actually `import numpy`, rather than assuming one name:
+#
+#   1. $PYTHON, if already set and it can import numpy   -- respected as-is
+#   2. `python` on PATH, if it can import numpy          -- the old hardcoded name
+#   3. `python3` on PATH, if it can import numpy
+#   4. $CONDA_ENV (default FlexiCache) under the conda base found by
+#      detect_conda_sh -- addressed by PATH (envs/<name>/bin/python) instead of
+#      `conda activate`, because callers use this via "$(detect_python)" and an
+#      activation inside that subshell would not outlive it
+#   5. none found -- print every candidate tried and exit nonzero
+_wakekv_python_has_numpy() {
+  "$1" -c 'import numpy' >/dev/null 2>&1
+}
+
+detect_python() {
+  local tried=() c conda_sh base env_name="${CONDA_ENV:-FlexiCache}"
+
+  if [ -n "${PYTHON:-}" ]; then
+    if _wakekv_python_has_numpy "$PYTHON"; then
+      echo "$PYTHON"
+      return
+    fi
+    echo "[wakekv_gpu_lib] WARNING: \$PYTHON=$PYTHON cannot 'import numpy' -- falling back to auto-detection" >&2
+  fi
+
+  for c in python python3; do
+    tried+=("$c")
+    if command -v "$c" >/dev/null 2>&1 && _wakekv_python_has_numpy "$c"; then
+      echo "[wakekv_gpu_lib] using $c ($(command -v "$c"))" >&2
+      echo "$c"
+      return
+    fi
+  done
+
+  if conda_sh="$(detect_conda_sh 2>/dev/null)"; then
+    base="$(dirname "$(dirname "$(dirname "$conda_sh")")")"
+    for c in "$base/envs/$env_name/bin/python" "$base/bin/python"; do
+      tried+=("$c")
+      if [ -x "$c" ] && _wakekv_python_has_numpy "$c"; then
+        echo "[wakekv_gpu_lib] using $c" >&2
+        echo "$c"
+        return
+      fi
+    done
+  fi
+
+  echo "[wakekv_gpu_lib] ERROR: found no Python that can 'import numpy'." \
+       "Checked \$PYTHON and: ${tried[*]}." \
+       "Set PYTHON explicitly to an interpreter with numpy installed." >&2
+  return 1
+}
