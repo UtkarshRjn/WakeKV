@@ -1,4 +1,4 @@
-# Combined Phase 2a residency simulation — Mon Aug 24 11:17:54 PDT 2026
+# Combined Phase 2a residency simulation — Tue Aug 25 08:49:47 PDT 2026
 
 <!-- ============ Qwen__Qwen2.5-3B-Instruct/multiturn ============ -->
 # Residency simulation — /home/utranjan/dynamic-head-kv/runs/Qwen__Qwen2.5-3B-Instruct/multiturn
@@ -55,26 +55,49 @@ Reactive (offload) misses <= evict (destroy) at **4/4** matched budgets.
 
 Unlike frozen, reactive and evict share the exact same LRU eviction schedule — what stays resident and when something gets pushed out is identical between them, since that's driven only by demand and the budget cap. The only thing that differs is what happens to a page AFTER eviction: reactive can get it back with one paid stall; evict never gets it back at all. A win here isolates reversibility itself as the source of the advantage, holding dynamism, budget, and eviction order fixed on both sides.
 
-## Reactive vs. SnapKV (frozen prefill selection), same budget
-Reactive misses <= snapkv at **2/4** matched budgets.
+## Reactive vs. SnapKV (frozen prefill selection) — same NOMINAL budget
+NOT apples-to-apples (see matched-memory read below) -- reactive misses <= snapkv at **2/4** same-label budgets, but the two sides can sit at very different actual memory (page counts above). Kept for the raw numbers; trust the matched-memory read for the fair comparison.
   - budget 8 (~4608 vs ~7938 pages): reactive 0.631 vs snapkv 0.428 (snapkv better)
   - budget 16 (~9187 vs ~11519 pages): reactive 0.300 vs snapkv 0.247 (snapkv better)
   - budget 32 (~17373 vs ~12475 pages): reactive 0.010 vs snapkv 0.201 (reactive better)
   - budget 64 (~18621 vs ~12475 pages): reactive 0.000 vs snapkv 0.201 (reactive better)
 
-## Reactive vs. uniform R-KV (importance-ranked destructive pruning), same budget
-Reactive misses <= rkv_uniform at **1/4** matched budgets.
+## Reactive vs. uniform R-KV (importance-ranked destructive pruning) — same NOMINAL budget
+NOT apples-to-apples (see matched-memory read below) -- reactive misses <= rkv_uniform at **1/4** same-label budgets, but the two sides can sit at very different actual memory (page counts above). Kept for the raw numbers; trust the matched-memory read for the fair comparison.
   - budget 8 (~4608 vs ~14479 pages): reactive 0.631 vs rkv_uniform 0.163 (rkv_uniform better)
   - budget 16 (~9187 vs ~15684 pages): reactive 0.300 vs rkv_uniform 0.093 (rkv_uniform better)
   - budget 32 (~17373 vs ~18072 pages): reactive 0.010 vs rkv_uniform 0.010 (rkv_uniform better)
   - budget 64 (~18621 vs ~18621 pages): reactive 0.000 vs rkv_uniform 0.000 (reactive better)
 
-## Reactive vs. ReasonAlloc (per-head reallocation, destructive), same budget
-Reactive misses <= reasonalloc at **1/4** matched budgets.
+## Reactive vs. ReasonAlloc (per-head reallocation, destructive) — same NOMINAL budget
+NOT apples-to-apples (see matched-memory read below) -- reactive misses <= reasonalloc at **1/4** same-label budgets, but the two sides can sit at very different actual memory (page counts above). Kept for the raw numbers; trust the matched-memory read for the fair comparison.
   - budget 8 (~4608 vs ~14479 pages): reactive 0.631 vs reasonalloc 0.163 (reasonalloc better)
   - budget 16 (~9187 vs ~15684 pages): reactive 0.300 vs reasonalloc 0.090 (reasonalloc better)
   - budget 32 (~17373 vs ~18096 pages): reactive 0.010 vs reasonalloc 0.009 (reasonalloc better)
   - budget 64 (~18621 vs ~18621 pages): reactive 0.000 vs reasonalloc 0.000 (reactive better)
+
+## Reactive vs. SnapKV (frozen prefill selection) — matched memory
+Reactive misses <= snapkv at **4/4** matched-memory operating points (reactive's miss rate interpolated onto snapkv's own realized memory at each of its budgets).
+  - at ~7938 pages: snapkv 0.428 vs reactive 0.390 (reactive better)
+  - at ~11519 pages: snapkv 0.247 vs reactive 0.217 (reactive better)
+  - at ~12475 pages: snapkv 0.201 vs reactive 0.184 (reactive better)
+  - at ~12475 pages: snapkv 0.201 vs reactive 0.184 (reactive better)
+
+## Reactive vs. uniform R-KV (importance-ranked destructive pruning) — matched memory
+Reactive misses <= rkv_uniform at **4/4** matched-memory operating points (reactive's miss rate interpolated onto rkv_uniform's own realized memory at each of its budgets).
+  - at ~14479 pages: rkv_uniform 0.163 vs reactive 0.113 (reactive better)
+  - at ~15684 pages: rkv_uniform 0.093 vs reactive 0.070 (reactive better)
+  - at ~18072 pages: rkv_uniform 0.010 vs reactive 0.005 (reactive better)
+  - at ~18621 pages: rkv_uniform 0.000 vs reactive 0.000 (reactive better)
+
+## Reactive vs. ReasonAlloc (per-head reallocation, destructive) — matched memory
+Reactive misses <= reasonalloc at **4/4** matched-memory operating points (reactive's miss rate interpolated onto reasonalloc's own realized memory at each of its budgets).
+  - at ~14479 pages: reasonalloc 0.163 vs reactive 0.113 (reactive better)
+  - at ~15684 pages: reasonalloc 0.090 vs reactive 0.070 (reactive better)
+  - at ~18096 pages: reasonalloc 0.009 vs reactive 0.004 (reactive better)
+  - at ~18621 pages: reasonalloc 0.000 vs reactive 0.000 (reactive better)
+
+This is the fair reading of the three-baseline comparison: it holds memory constant, the way C2's frozen-vs-reactive read already does, instead of comparing at a shared nominal budget label the two sides realize very differently.
 
 Caveats specific to these three (see `wakekv/residency.py`'s docstrings for exact simplifications and confidence levels): "same budget" is a NOMINAL target for rkv_uniform/reasonalloc, not continuous capping like reactive/evict -- they only prune at periodic buffer/delta boundaries (default every 128 steps), so realized mean resident pages (shown above) can run well above the budget between prunings; compare the printed page counts, not just the budget label. SnapKV's observation window is degraded to a single query (this log's step 0), not the paper's multi-token window; R-KV/ReasonAlloc's importance-vs-redundancy joint score is importance-only, since raw key vectors (needed for redundancy) aren't logged; ReasonAlloc's offline per-layer budget calibration is substituted with an equal split, not the paper's Reasoning-Wave allocation. Each is a real, cited reimplementation with a declared gap, not a guess.
 
@@ -130,26 +153,41 @@ Reactive (offload) misses <= evict (destroy) at **4/4** matched budgets.
 
 Unlike frozen, reactive and evict share the exact same LRU eviction schedule — what stays resident and when something gets pushed out is identical between them, since that's driven only by demand and the budget cap. The only thing that differs is what happens to a page AFTER eviction: reactive can get it back with one paid stall; evict never gets it back at all. A win here isolates reversibility itself as the source of the advantage, holding dynamism, budget, and eviction order fixed on both sides.
 
-## Reactive vs. SnapKV (frozen prefill selection), same budget
-Reactive misses <= snapkv at **3/4** matched budgets.
+## Reactive vs. SnapKV (frozen prefill selection) — same NOMINAL budget
+NOT apples-to-apples (see matched-memory read below) -- reactive misses <= snapkv at **3/4** same-label budgets, but the two sides can sit at very different actual memory (page counts above). Kept for the raw numbers; trust the matched-memory read for the fair comparison.
   - budget 8 (~4608 vs ~9040 pages): reactive 0.655 vs snapkv 0.499 (snapkv better)
   - budget 16 (~9209 vs ~13506 pages): reactive 0.409 vs snapkv 0.429 (reactive better)
   - budget 32 (~18337 vs ~18995 pages): reactive 0.187 vs snapkv 0.374 (reactive better)
   - budget 64 (~35638 vs ~19611 pages): reactive 0.076 vs snapkv 0.368 (reactive better)
 
-## Reactive vs. uniform R-KV (importance-ranked destructive pruning), same budget
-Reactive misses <= rkv_uniform at **1/4** matched budgets.
+## Reactive vs. uniform R-KV (importance-ranked destructive pruning) — same NOMINAL budget
+NOT apples-to-apples (see matched-memory read below) -- reactive misses <= rkv_uniform at **1/4** same-label budgets, but the two sides can sit at very different actual memory (page counts above). Kept for the raw numbers; trust the matched-memory read for the fair comparison.
   - budget 8 (~4608 vs ~42407 pages): reactive 0.655 vs rkv_uniform 0.250 (rkv_uniform better)
   - budget 16 (~9209 vs ~44727 pages): reactive 0.409 vs rkv_uniform 0.179 (rkv_uniform better)
   - budget 32 (~18337 vs ~49354 pages): reactive 0.187 vs rkv_uniform 0.128 (rkv_uniform better)
   - budget 64 (~35638 vs ~58374 pages): reactive 0.076 vs rkv_uniform 0.080 (reactive better)
 
-## Reactive vs. ReasonAlloc (per-head reallocation, destructive), same budget
-Reactive misses <= reasonalloc at **0/4** matched budgets.
+## Reactive vs. ReasonAlloc (per-head reallocation, destructive) — same NOMINAL budget
+NOT apples-to-apples (see matched-memory read below) -- reactive misses <= reasonalloc at **0/4** same-label budgets, but the two sides can sit at very different actual memory (page counts above). Kept for the raw numbers; trust the matched-memory read for the fair comparison.
   - budget 8 (~4608 vs ~42407 pages): reactive 0.655 vs reasonalloc 0.250 (reasonalloc better)
   - budget 16 (~9209 vs ~44729 pages): reactive 0.409 vs reasonalloc 0.177 (reasonalloc better)
   - budget 32 (~18337 vs ~49373 pages): reactive 0.187 vs reasonalloc 0.126 (reasonalloc better)
   - budget 64 (~35638 vs ~58659 pages): reactive 0.076 vs reasonalloc 0.074 (reasonalloc better)
+
+## Reactive vs. SnapKV (frozen prefill selection) — matched memory
+Reactive misses <= snapkv at **4/4** matched-memory operating points (reactive's miss rate interpolated onto snapkv's own realized memory at each of its budgets).
+  - at ~9040 pages: snapkv 0.499 vs reactive 0.418 (reactive better)
+  - at ~13506 pages: snapkv 0.429 vs reactive 0.304 (reactive better)
+  - at ~18995 pages: snapkv 0.374 vs reactive 0.183 (reactive better)
+  - at ~19611 pages: snapkv 0.368 vs reactive 0.179 (reactive better)
+
+## Reactive vs. uniform R-KV (importance-ranked destructive pruning) — matched memory
+No rkv_uniform operating point fell inside reactive's own memory range, so no interpolated comparison is possible here (see the nominal-budget numbers above instead).
+
+## Reactive vs. ReasonAlloc (per-head reallocation, destructive) — matched memory
+No reasonalloc operating point fell inside reactive's own memory range, so no interpolated comparison is possible here (see the nominal-budget numbers above instead).
+
+This is the fair reading of the three-baseline comparison: it holds memory constant, the way C2's frozen-vs-reactive read already does, instead of comparing at a shared nominal budget label the two sides realize very differently.
 
 Caveats specific to these three (see `wakekv/residency.py`'s docstrings for exact simplifications and confidence levels): "same budget" is a NOMINAL target for rkv_uniform/reasonalloc, not continuous capping like reactive/evict -- they only prune at periodic buffer/delta boundaries (default every 128 steps), so realized mean resident pages (shown above) can run well above the budget between prunings; compare the printed page counts, not just the budget label. SnapKV's observation window is degraded to a single query (this log's step 0), not the paper's multi-token window; R-KV/ReasonAlloc's importance-vs-redundancy joint score is importance-only, since raw key vectors (needed for redundancy) aren't logged; ReasonAlloc's offline per-layer budget calibration is substituted with an equal split, not the paper's Reasoning-Wave allocation. Each is a real, cited reimplementation with a declared gap, not a guess.
 
@@ -208,26 +246,43 @@ Reactive (offload) misses <= evict (destroy) at **3/4** matched budgets.
 
 Unlike frozen, reactive and evict share the exact same LRU eviction schedule — what stays resident and when something gets pushed out is identical between them, since that's driven only by demand and the budget cap. The only thing that differs is what happens to a page AFTER eviction: reactive can get it back with one paid stall; evict never gets it back at all. A win here isolates reversibility itself as the source of the advantage, holding dynamism, budget, and eviction order fixed on both sides.
 
-## Reactive vs. SnapKV (frozen prefill selection), same budget
-Reactive misses <= snapkv at **0/4** matched budgets.
+## Reactive vs. SnapKV (frozen prefill selection) — same NOMINAL budget
+NOT apples-to-apples (see matched-memory read below) -- reactive misses <= snapkv at **0/4** same-label budgets, but the two sides can sit at very different actual memory (page counts above). Kept for the raw numbers; trust the matched-memory read for the fair comparison.
   - budget 8 (~8088 vs ~46512 pages): reactive 0.632 vs snapkv 0.021 (snapkv better)
   - budget 16 (~15298 vs ~48212 pages): reactive 0.338 vs snapkv 0.007 (snapkv better)
   - budget 32 (~26362 vs ~48533 pages): reactive 0.090 vs snapkv 0.005 (snapkv better)
   - budget 64 (~39178 vs ~48533 pages): reactive 0.014 vs snapkv 0.005 (snapkv better)
 
-## Reactive vs. uniform R-KV (importance-ranked destructive pruning), same budget
-Reactive misses <= rkv_uniform at **2/4** matched budgets.
+## Reactive vs. uniform R-KV (importance-ranked destructive pruning) — same NOMINAL budget
+NOT apples-to-apples (see matched-memory read below) -- reactive misses <= rkv_uniform at **2/4** same-label budgets, but the two sides can sit at very different actual memory (page counts above). Kept for the raw numbers; trust the matched-memory read for the fair comparison.
   - budget 8 (~8088 vs ~11764 pages): reactive 0.632 vs rkv_uniform 0.508 (rkv_uniform better)
   - budget 16 (~15298 vs ~18353 pages): reactive 0.338 vs rkv_uniform 0.314 (rkv_uniform better)
   - budget 32 (~26362 vs ~28381 pages): reactive 0.090 vs rkv_uniform 0.132 (reactive better)
   - budget 64 (~39178 vs ~40267 pages): reactive 0.014 vs rkv_uniform 0.031 (reactive better)
 
-## Reactive vs. ReasonAlloc (per-head reallocation, destructive), same budget
-Reactive misses <= reasonalloc at **2/4** matched budgets.
+## Reactive vs. ReasonAlloc (per-head reallocation, destructive) — same NOMINAL budget
+NOT apples-to-apples (see matched-memory read below) -- reactive misses <= reasonalloc at **2/4** same-label budgets, but the two sides can sit at very different actual memory (page counts above). Kept for the raw numbers; trust the matched-memory read for the fair comparison.
   - budget 8 (~8088 vs ~11764 pages): reactive 0.632 vs reasonalloc 0.514 (reasonalloc better)
   - budget 16 (~15298 vs ~18353 pages): reactive 0.338 vs reasonalloc 0.317 (reasonalloc better)
   - budget 32 (~26362 vs ~28381 pages): reactive 0.090 vs reasonalloc 0.129 (reactive better)
   - budget 64 (~39178 vs ~40267 pages): reactive 0.014 vs reasonalloc 0.027 (reactive better)
+
+## Reactive vs. SnapKV (frozen prefill selection) — matched memory
+No snapkv operating point fell inside reactive's own memory range, so no interpolated comparison is possible here (see the nominal-budget numbers above instead).
+
+## Reactive vs. uniform R-KV (importance-ranked destructive pruning) — matched memory
+Reactive misses <= rkv_uniform at **3/3** matched-memory operating points (reactive's miss rate interpolated onto rkv_uniform's own realized memory at each of its budgets).
+  - at ~11764 pages: rkv_uniform 0.508 vs reactive 0.482 (reactive better)
+  - at ~18353 pages: rkv_uniform 0.314 vs reactive 0.270 (reactive better)
+  - at ~28381 pages: rkv_uniform 0.132 vs reactive 0.078 (reactive better)
+
+## Reactive vs. ReasonAlloc (per-head reallocation, destructive) — matched memory
+Reactive misses <= reasonalloc at **3/3** matched-memory operating points (reactive's miss rate interpolated onto reasonalloc's own realized memory at each of its budgets).
+  - at ~11764 pages: reasonalloc 0.514 vs reactive 0.482 (reactive better)
+  - at ~18353 pages: reasonalloc 0.317 vs reactive 0.270 (reactive better)
+  - at ~28381 pages: reasonalloc 0.129 vs reactive 0.078 (reactive better)
+
+This is the fair reading of the three-baseline comparison: it holds memory constant, the way C2's frozen-vs-reactive read already does, instead of comparing at a shared nominal budget label the two sides realize very differently.
 
 Caveats specific to these three (see `wakekv/residency.py`'s docstrings for exact simplifications and confidence levels): "same budget" is a NOMINAL target for rkv_uniform/reasonalloc, not continuous capping like reactive/evict -- they only prune at periodic buffer/delta boundaries (default every 128 steps), so realized mean resident pages (shown above) can run well above the budget between prunings; compare the printed page counts, not just the budget label. SnapKV's observation window is degraded to a single query (this log's step 0), not the paper's multi-token window; R-KV/ReasonAlloc's importance-vs-redundancy joint score is importance-only, since raw key vectors (needed for redundancy) aren't logged; ReasonAlloc's offline per-layer budget calibration is substituted with an equal split, not the paper's Reasoning-Wave allocation. Each is a real, cited reimplementation with a declared gap, not a guess.
 
@@ -286,25 +341,42 @@ Reactive (offload) misses <= evict (destroy) at **4/4** matched budgets.
 
 Unlike frozen, reactive and evict share the exact same LRU eviction schedule — what stays resident and when something gets pushed out is identical between them, since that's driven only by demand and the budget cap. The only thing that differs is what happens to a page AFTER eviction: reactive can get it back with one paid stall; evict never gets it back at all. A win here isolates reversibility itself as the source of the advantage, holding dynamism, budget, and eviction order fixed on both sides.
 
-## Reactive vs. SnapKV (frozen prefill selection), same budget
-Reactive misses <= snapkv at **1/4** matched budgets.
+## Reactive vs. SnapKV (frozen prefill selection) — same NOMINAL budget
+NOT apples-to-apples (see matched-memory read below) -- reactive misses <= snapkv at **1/4** same-label budgets, but the two sides can sit at very different actual memory (page counts above). Kept for the raw numbers; trust the matched-memory read for the fair comparison.
   - budget 8 (~2637 vs ~11065 pages): reactive 0.542 vs snapkv 0.032 (snapkv better)
   - budget 16 (~4899 vs ~11577 pages): reactive 0.221 vs snapkv 0.014 (snapkv better)
   - budget 32 (~8014 vs ~11657 pages): reactive 0.040 vs snapkv 0.012 (snapkv better)
   - budget 64 (~10692 vs ~11657 pages): reactive 0.005 vs snapkv 0.012 (reactive better)
 
-## Reactive vs. uniform R-KV (importance-ranked destructive pruning), same budget
-Reactive misses <= rkv_uniform at **2/4** matched budgets.
+## Reactive vs. uniform R-KV (importance-ranked destructive pruning) — same NOMINAL budget
+NOT apples-to-apples (see matched-memory read below) -- reactive misses <= rkv_uniform at **2/4** same-label budgets, but the two sides can sit at very different actual memory (page counts above). Kept for the raw numbers; trust the matched-memory read for the fair comparison.
   - budget 8 (~2637 vs ~3911 pages): reactive 0.542 vs rkv_uniform 0.399 (rkv_uniform better)
   - budget 16 (~4899 vs ~5872 pages): reactive 0.221 vs rkv_uniform 0.201 (rkv_uniform better)
   - budget 32 (~8014 vs ~8495 pages): reactive 0.040 vs rkv_uniform 0.063 (reactive better)
   - budget 64 (~10692 vs ~10864 pages): reactive 0.005 vs rkv_uniform 0.012 (reactive better)
 
-## Reactive vs. ReasonAlloc (per-head reallocation, destructive), same budget
-Reactive misses <= reasonalloc at **2/4** matched budgets.
+## Reactive vs. ReasonAlloc (per-head reallocation, destructive) — same NOMINAL budget
+NOT apples-to-apples (see matched-memory read below) -- reactive misses <= reasonalloc at **2/4** same-label budgets, but the two sides can sit at very different actual memory (page counts above). Kept for the raw numbers; trust the matched-memory read for the fair comparison.
   - budget 8 (~2637 vs ~3911 pages): reactive 0.542 vs reasonalloc 0.401 (reasonalloc better)
   - budget 16 (~4899 vs ~5872 pages): reactive 0.221 vs reasonalloc 0.199 (reasonalloc better)
   - budget 32 (~8014 vs ~8495 pages): reactive 0.040 vs reasonalloc 0.058 (reactive better)
   - budget 64 (~10692 vs ~10864 pages): reactive 0.005 vs reasonalloc 0.009 (reactive better)
+
+## Reactive vs. SnapKV (frozen prefill selection) — matched memory
+No snapkv operating point fell inside reactive's own memory range, so no interpolated comparison is possible here (see the nominal-budget numbers above instead).
+
+## Reactive vs. uniform R-KV (importance-ranked destructive pruning) — matched memory
+Reactive misses <= rkv_uniform at **3/3** matched-memory operating points (reactive's miss rate interpolated onto rkv_uniform's own realized memory at each of its budgets).
+  - at ~3911 pages: rkv_uniform 0.399 vs reactive 0.361 (reactive better)
+  - at ~5872 pages: rkv_uniform 0.201 vs reactive 0.164 (reactive better)
+  - at ~8495 pages: rkv_uniform 0.063 vs reactive 0.034 (reactive better)
+
+## Reactive vs. ReasonAlloc (per-head reallocation, destructive) — matched memory
+Reactive misses <= reasonalloc at **3/3** matched-memory operating points (reactive's miss rate interpolated onto reasonalloc's own realized memory at each of its budgets).
+  - at ~3911 pages: reasonalloc 0.401 vs reactive 0.361 (reactive better)
+  - at ~5872 pages: reasonalloc 0.199 vs reactive 0.164 (reactive better)
+  - at ~8495 pages: reasonalloc 0.058 vs reactive 0.034 (reactive better)
+
+This is the fair reading of the three-baseline comparison: it holds memory constant, the way C2's frozen-vs-reactive read already does, instead of comparing at a shared nominal budget label the two sides realize very differently.
 
 Caveats specific to these three (see `wakekv/residency.py`'s docstrings for exact simplifications and confidence levels): "same budget" is a NOMINAL target for rkv_uniform/reasonalloc, not continuous capping like reactive/evict -- they only prune at periodic buffer/delta boundaries (default every 128 steps), so realized mean resident pages (shown above) can run well above the budget between prunings; compare the printed page counts, not just the budget label. SnapKV's observation window is degraded to a single query (this log's step 0), not the paper's multi-token window; R-KV/ReasonAlloc's importance-vs-redundancy joint score is importance-only, since raw key vectors (needed for redundancy) aren't logged; ReasonAlloc's offline per-layer budget calibration is substituted with an equal split, not the paper's Reasoning-Wave allocation. Each is a real, cited reimplementation with a declared gap, not a guess.
