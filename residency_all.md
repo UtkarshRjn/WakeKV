@@ -1,4 +1,4 @@
-# Combined Phase 2a residency simulation — Mon Aug 24 06:46:14 AM PDT 2026
+# Combined Phase 2a residency simulation — Tue Aug 25 11:26:50 AM PDT 2026
 
 <!-- ============ mistralai__Mistral-7B-Instruct-v0.2/niah ============ -->
 # Residency simulation — /home/intern/utranjan/RetroSpec-base/dynamic-head-kv/runs/mistralai__Mistral-7B-Instruct-v0.2/niah
