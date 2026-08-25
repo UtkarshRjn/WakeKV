@@ -5,9 +5,21 @@ to FlexiCache** at this stage — the whole point is to prove their code
 runs on our hardware and produces their published quality numbers before
 we start touching it.*
 
-**Machine:** wolverine, A30 24GB HBM2, PCIe Gen4 x16, CUDA 13.0, driver 580.
+**Machine:** wolverine, **H100 81.5GB HBM3** (not the A30 this doc originally
+assumed — corrected after the first real attempt), 503GB system RAM,
+measured H2D PCIe **55.7 GB/s** (see Step 0). CUDA driver/version: TBD,
+confirm via `nvidia-smi` on next attempt.
 **Goal:** LongBench average score on at least one of their tested models,
 within ±0.5 of their Table 4.
+
+**Known blocker (as of the first real attempt on wolverine): disk space.**
+Environment setup and dependency resolution (dry-run) succeeded — torch
+2.6.0+cu124 resolves cleanly — but the actual installs are blocked: root
+`/` had only 3.6GB free and `/mnt/conda` had 0 bytes, against torch's
+~6-7GB installed footprint plus vLLM 0.8.2's from-source build (tens of
+GB of CUDA object files). **Do not force this** — filling a shared box's
+root partition to zero risks other users' jobs and will fail partway
+anyway. Find a larger mount (`df -h`) before retrying Step 1.
 
 ---
 
@@ -23,18 +35,22 @@ From FlexiCache MLSys 2026 Table 4, budget 1024:
 Either passing = success. Multiple models is bonus, not required.
 
 **Success bar does NOT include throughput.** FlexiCache reports 1.4× on
-H100/PCIe-5.0; on A30/PCIe-4.0 with narrower HBM and PCIe, expect
-noticeably slower. Absolute throughput will diverge from their paper for
-hardware reasons and that's fine — the ratio (their sparse vs their
-dense) should still be in the same shape.
+H100/PCIe-5.0 — since wolverine is also an H100, our throughput should
+land close to their own testbed's shape, not the "expect noticeably
+slower" caveat this doc originally had for an assumed A30. Two hardware
+deltas still worth watching: their card is the 94GB NVL variant vs our
+81.5GB (may bind on batch size / host KV pool sooner), and their
+`config.json` defaults a 180GB host KV reservoir against our 503GB total
+RAM but currently only ~480GB available.
 
 ## Failure modes to anticipate (with mitigations)
 
 | Symptom | Likely cause | First fix |
 |---|---|---|
+| Install fails partway through, disk fills up | Shared box's root partition too small for torch (~6-7GB) + vLLM source build (tens of GB) | Check `df -h` for a larger mount FIRST; don't start `pip install -e .` on a box already near capacity — see "Known blocker" above |
 | OOM at prefill | vLLM's memory profiler is too aggressive | `--gpu-memory-utilization 0.85` |
-| Their build errors on CUDA 13 | Their setup pinned CUDA 12.x | Match their pinned Torch/CUDA (see their `requirements.txt`); PyTorch 2.5 + CUDA 12.4 is likely their target |
-| Modified Triton kernel fails to compile | Triton version mismatch | Use whatever Triton their pyproject pins |
+| Their build errors on CUDA 13 | Their setup pinned CUDA 12.x | Match their pinned Torch/CUDA (see their `requirements/` dir); confirmed pin is torch 2.6.0+cu124 (see Step 1) |
+| Modified Triton kernel fails to compile | Triton version mismatch | Confirmed: Triton 3.2.0 resolves cleanly against their pin (dry-run verified) |
 | LongBench score wildly off | Wrong tokenizer / chat template | Print the actual prompt at inference; compare to their expected prefix |
 | Score off by ~5 pts | Their profile file is model-specific | Confirm using the profile they shipped for this exact model |
 
@@ -55,7 +71,7 @@ pip install --upgrade pip
 
 # Check we can see the GPU from Python.
 python -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
-# expect: NVIDIA A30
+# expect: NVIDIA H100
 
 # Measure achieved PCIe bandwidth. We'll use this number in Phase 2b analyses.
 python - <<'PY'
@@ -70,12 +86,16 @@ torch.cuda.synchronize()
 gb_s = 20 * size / (time.perf_counter() - t) / 1e9
 print(f"H2D achieved: {gb_s:.1f} GB/s")
 PY
-# expect: something in the 20-28 GB/s range at Gen4 x16
+# MEASURED on wolverine: 55.7 GB/s (H100/PCIe-5.0 -- ~2.6x the A30/Gen4
+# 21 GB/s this doc originally assumed). Use --pcie-gbps 55.7 for any
+# transfer_steps_needed() call on this host -- the 21.0 default in
+# wakekv/signals.py is HeteroCache's measured Gen4 number, not this box's.
 ```
 
 **Record the measured H2D number** in your run log — this becomes the
-`--pcie-gbps` argument for all Phase 2b analyses. Do not use the 32 GB/s
-theoretical peak; use what your box actually achieves.
+`--pcie-gbps` argument for all Phase 2b analyses on this host. Do not use
+a theoretical peak or another host's measured number; use what wolverine
+actually achieves (55.7 GB/s, confirmed above).
 
 ## Step 1 — Clone and build FlexiCache (2 hours)
 
@@ -88,25 +108,31 @@ cd FlexiCache
 # blindly installing.
 head -80 README.md
 
-# If they pin CUDA 12.4 and torch 2.5 (typical for MLSys 2026 papers), do:
-#   pip install torch==2.5.* --index-url https://download.pytorch.org/whl/cu124
-# then install their remaining requirements.
+# CONFIRMED pin (dry-run resolved cleanly on wolverine): torch 2.6.0+cu124,
+# Python 3.12, Triton 3.2.0, transformers 4.50.0, datasets 3.6.0, CUDA
+# runtime 12.8. TORCH_CUDA_ARCH_LIST="9.0;9.0a" in their config is already
+# correct for this H100 (compute cap 9.0) -- no override needed.
+pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 
-pip install -r requirements.txt
-# custom kernels / triton build:
-pip install -e .   # or whatever their install command is
+# pip install -e . FIRST -- this builds vLLM 0.8.2 from source (tens of GB,
+# ~30 min at MAX_JOBS=20). Needs real free disk -- see "Known blocker" above.
+pip install -e .
 
-# Quick sanity: import their package and instantiate a tiny model.
-python -c "import flexicache; print(flexicache.__version__)"
+# THEN the extra deps -- there is no root requirements.txt, only a
+# requirements/ directory; the FlexiCache-specific extras are here and
+# install AFTER -e ., not before:
+pip install -r requirements/flexicache_requirements.txt
+
+# Quick sanity: there is no top-level `flexicache` package -- it lives at
+# vllm/v1/flexicache/. This is the working check (matches
+# docs/phase2b_m1b_smoke_test.md):
+python -c "from vllm.v1.flexicache.config import FlexiCacheConfig; print('ok')"
 ```
 
-Two things to watch for and NOT ignore:
-1. **CUDA 13 vs their CUDA 12.x pin.** If their code assumes 12.x, install
-   the pinned Torch wheel from PyTorch's index; CUDA 13 back-compat should
-   let it run. If it crashes, install a matching CUDA userspace via conda
-   (`conda install -c conda-forge cudatoolkit=12.4`) — don't force-upgrade.
-2. **Triton version.** Their custom Flash-Decoding may pin a specific
-   Triton. Symptom is a compile-time error on first attention call.
+One thing to watch for and NOT ignore:
+- **Disk space.** `pip install -e .` alone needs tens of GB for the vLLM
+  build. Confirm free space on a real mount (not just `~`, which may be on
+  a small root partition) before starting -- see "Known blocker" above.
 
 ## Step 2 — Download the target model (30 min)
 
@@ -122,8 +148,8 @@ their paper reports it too, no gating.
 ## Step 3 — Run their profiling pass (1 hour)
 
 FlexiCache's classification comes from a one-time profile per model. Their
-paper says GovReport takes ~2h on Llama-3.1-8B on H100; expect ~4h on A30
-(half the throughput, roughly).
+paper says GovReport takes ~2h on Llama-3.1-8B on H100 — wolverine is also
+an H100, so expect close to their number, not the ~4h an A30 would need.
 
 ```bash
 # Command shape (check their scripts/README for the exact form):
@@ -146,7 +172,7 @@ python scripts/eval_longbench.py \
     --budget 1024 \
     --unstable-frac 0.25 \
     --rerank-interval 16 \
-    --out results/longbench-flexicache-a30.json
+    --out results/longbench-flexicache-wolverine.json
 ```
 
 Their default flags in the paper: budget 1024, unstable 25%, rerank every
@@ -158,8 +184,9 @@ Compute LongBench average across their 16 tasks (or whatever subset their
 harness produces), then compare to their published number:
 
 - **Within ±0.5 → M2b-0 PASS.** Record the numbers, note the achieved
-  PCIe bandwidth from Step 0, note the throughput they *did* achieve on
-  A30 (for the paper — this is the reproduction receipt), advance to M2b-1.
+  PCIe bandwidth from Step 0, note the throughput achieved on wolverine
+  vs. their published H100 number (for the paper — this is the
+  reproduction receipt), advance to M2b-1.
 - **Off by 0.5–2.0 → investigate.** Most likely: wrong profile source
   task, wrong budget, wrong tokenizer/chat template. Fix and rerun once.
 - **Off by >2.0 or crashing → escalate.** Either their code has a bug on
@@ -174,10 +201,10 @@ harness produces), then compare to their published number:
 - `notes/phase2b_results.md` (new file) — first section: **M2b-0
   reproduction**. Include: measured PCIe bandwidth, model + task list,
   achieved LongBench average vs their published number, achieved
-  throughput on A30 (tokens/sec) vs their H100 number for context, any
-  version mismatches noted, and a green/yellow/red verdict.
+  throughput on wolverine (tokens/sec) vs their published H100 number for
+  context, any version mismatches noted, and a green/yellow/red verdict.
 - `paper/wakekv.tex` Setup section: update the follow-up-hardware note
-  with the measured A30 PCIe bandwidth from Step 0.
+  with the measured wolverine PCIe bandwidth from Step 0 (55.7 GB/s).
 
 M2b-1 begins after this doc has real numbers in it.
 
