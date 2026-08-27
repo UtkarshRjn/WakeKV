@@ -91,17 +91,20 @@ score and binary copy-paste score following
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{lll}
+\begin{tabular}{llc}
 \toprule
-Comparison (matched memory/budget) & Combos & Result \\
+Comparison (matched memory/budget) & Combos tested & Reactive wins \\
 \midrule
-Reactive vs.\ Frozen (C2) & 5 model/regime & \textbf{17/17} \\
-Reactive vs.\ Evict, same LRU schedule (C3) & 5 model/regime & \textbf{19/20} \\
-Reactive vs.\ SnapKV / R-KV / ReasonAlloc & 5 model/regime & \textbf{32/32} \\
-Real-system throughput vs.\ stock FlexiCache & Mistral-7B, A30 & $1.34$--$2.33\times$ @ $95$--$99\%$ quality \\
+vs.\ Frozen, at matched memory (C2) & 5 model/regime & \textbf{17 of 17} \\
+vs.\ Evict, same LRU schedule, matched budget (C3) & 5 model/regime & \textbf{19 of 20} \\
+vs.\ SnapKV / R-KV / ReasonAlloc, matched memory & 5 model/regime & \textbf{32 of 32} \\
 \bottomrule
 \end{tabular}
-\caption{Headline results, all on real data. Details below.}
+\caption{Headline results: how often reactive's miss rate was $\leq$ the
+comparator's, at every real point where a fair (matched-memory or
+matched-budget) comparison was possible. All on real data; see
+Table~\ref{tab:m2b2} for the real-system throughput/quality result and
+the main text for the one C3 exception. Details below.}
 \end{table}
 
 \textbf{Heads shift during decoding.} Adjacent-step Jaccard of the
