@@ -119,8 +119,9 @@ where fp16 overflows); the 8B measurements were taken on Ampere
 (A30, 24~GB, bf16, PCIe~Gen4).
 
 \textbf{Regimes.} (i) NIAH, a synthetic UUID needle in $\approx 5000$
-tokens of filler; (ii) long CoT, math problems from MATH-500 with up to
-2048 generated tokens on the reasoning distillation; (iii) multi-turn,
+tokens of filler; (ii) long CoT, math problems from
+MATH-500~\cite{math500} with up to 2048 generated tokens on the
+reasoning distillation; (iii) multi-turn,
 a scripted conversation with facts stated in turn 1, three unrelated
 turns of filler, and a final recall request.
 
@@ -569,17 +570,24 @@ methods, (2) prefill-only adaptive allocators, (3) decode-time
 compressors, (4) offload systems. WakeKV closes the intersection
 between (4)'s reversibility and dynamic per-head adjustment.}
 
-Static head-role methods (DuoAttention, RazorAttention, MoA, HeadKV,
-FlexiCache, HeteroCache) fix each head's cache treatment offline or at
-prefill. Adaptive budget allocators (Ada-KV, CAKE, LAVa, DynamicKV) are
-prefill-only despite their names. Decode-time compressors (R-KV, G-KV,
-ThinKV, SCOPE) evict under uniform per-head budgets. ReasonAlloc
-reallocates head budgets during decoding but demotion permanently
-destroys KV. Offload systems (ArkVale, ShadowKV, InfiniGen, HeadInfer,
-FlexiCache, HeteroCache) keep KV recoverable but never change head
-priority at runtime. \cite{retrievalheadsdynamic} shows head roles
-churn within a single generation and names dynamic per-head KV
-retention as an open direction. WakeKV closes the intersection.
+Static head-role methods (DuoAttention~\cite{duoattention},
+RazorAttention~\cite{razorattention}, MoA~\cite{moa},
+HeadKV~\cite{headkv}, FlexiCache~\cite{flexicache},
+HeteroCache~\cite{heterocache}) fix each head's cache treatment offline
+or at prefill. Adaptive budget allocators (Ada-KV~\cite{adakv},
+CAKE~\cite{cake}, LAVa~\cite{lava}, DynamicKV~\cite{dynamickv}) are
+prefill-only despite their names. Decode-time compressors
+(R-KV~\cite{rkv}, G-KV~\cite{gkv}, ThinKV~\cite{thinkv},
+SCOPE~\cite{scope}) evict under uniform per-head budgets.
+ReasonAlloc~\cite{reasonalloc} reallocates head budgets during decoding
+but demotion permanently destroys KV. Offload systems
+(ArkVale~\cite{arkvale}, ShadowKV~\cite{shadowkv},
+InfiniGen~\cite{infinigen}, HeadInfer~\cite{headinfer},
+FlexiCache~\cite{flexicache}, HeteroCache~\cite{heterocache}) keep KV
+recoverable but never change head priority at runtime.
+\cite{retrievalheadsdynamic} shows head roles churn within a single
+generation and names dynamic per-head KV retention as an open
+direction. WakeKV closes the intersection.
 
 \section{Limitations and Future Work}
 \label{sec:limits}
@@ -714,9 +722,42 @@ Source, logs, and results at \NEEDPROSE{GitHub URL after de-anonymize}.
 All Phase 0--2a analyses can be re-run offline on the logs without a
 GPU.
 
-\begin{thebibliography}{9}
+% ---------------------------------------------------------------------
+% CITATIONS -- fill in by hand. Every entry keeps whatever is actually
+% verified (arXiv id + version, venue, official-code link where known);
+% \NEEDPROSE marks exactly what's still missing (full title, author
+% list) rather than guessing. Do not trust an unfilled arXiv id you
+% don't recognize -- confirm each on arXiv before printing it.
+%
+% The four "premise/machinery" citations (retrievalheadsdynamic,
+% flexicache, heterocache, reasonalloc) and the three Phase-3 baselines
+% (snapkv, rkv, reasonalloc) have their arXiv ids confirmed by direct
+% research this session (notes/big_four_deep_read.md and the PR #27
+% implementation work) -- only title/author wording is missing on those.
+% Everything below that has no arXiv id at all needs to be found AND
+% verified by hand; these are real, specific papers named in the
+% Related Work positioning, not placeholders invented for this list.
+% ---------------------------------------------------------------------
+\begin{thebibliography}{99}
+
+% --- Premise ---
 \bibitem{retrievalheadsdynamic}
-    \NEEDPROSE{Retrieval Heads are Dynamic (arXiv:2602.11162), full citation.}
+    \NEEDPROSE{full title and author list}, arXiv:2602.11162 (ACL 2026).
+
+% --- Machinery / closest prior systems (cited by name throughout) ---
+\bibitem{flexicache}
+    \NEEDPROSE{full title and author list}, arXiv:2511.00868v2
+    (MLSys 2026). Code: \url{https://github.com/NazmulTakbir/FlexiCache}
+    (Apache 2.0).
+\bibitem{heterocache}
+    \NEEDPROSE{full title and author list}, arXiv:2601.13684v2
+    (ACL 2026 Main).
+\bibitem{reasonalloc}
+    Liu et al., \NEEDPROSE{full title and author list}, arXiv:2606.11164v1
+    (preprint). No official code released (confirmed by direct search
+    as of this paper's writing).
+
+% --- Phase-3 baselines (\S\ref{sec:sim}) ---
 \bibitem{snapkv}
     Li et al., \NEEDPROSE{full title and author list}, arXiv:2404.14469
     (NeurIPS 2024). Official code:
@@ -724,13 +765,62 @@ GPU.
 \bibitem{rkv}
     Cai et al., \NEEDPROSE{full title and author list}, arXiv:2505.24133.
     Official code: \url{https://github.com/Zefan-Cai/R-KV}.
-\bibitem{reasonalloc}
-    Liu et al., \NEEDPROSE{full title and author list}, arXiv:2606.11164v1.
-    No official code released (confirmed by direct search as of this
-    paper's writing).
-\NEEDPROSE{FlexiCache (arXiv:2511.00868, MLSys 2026)}
-\NEEDPROSE{HeteroCache (arXiv:2601.13684, ACL 2026)}
-\NEEDPROSE{Ada-KV, LAVa, DynamicKV, CAKE, HeadKV, DuoAttention, RazorAttention, MoA, ThinKV, ArkVale, ShadowKV, InfiniGen, HeadInfer, SCBench, LongBench, RULER, HotpotQA/MATH-500 --- to be filled from notes/big\_four\_deep\_read.md.}
+
+% --- Static head-role methods (offline or prefill-time classification) ---
+\bibitem{duoattention}
+    \NEEDPROSE{full title, author list, arXiv id, venue}.
+\bibitem{razorattention}
+    \NEEDPROSE{full title, author list, arXiv id, venue}.
+\bibitem{moa}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "MoA", confirm
+    not confusable with unrelated "Mixture of Agents" work of the same
+    initialism.}
+\bibitem{headkv}
+    \NEEDPROSE{full title, author list, arXiv id, venue}.
+
+% --- Adaptive budget allocators (prefill-only despite the "dynamic" framing) ---
+\bibitem{adakv}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "Ada-KV".}
+\bibitem{cake}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "CAKE".}
+\bibitem{lava}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "LAVa".}
+\bibitem{dynamickv}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "DynamicKV".}
+
+% --- Decode-time compressors (uniform per-head budgets) ---
+\bibitem{gkv}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "G-KV".}
+\bibitem{thinkv}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "ThinKV".}
+\bibitem{scope}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "SCOPE", confirm
+    not confusable with unrelated same-named work outside this area.}
+
+% --- Offload systems (reversible, but static head priority) ---
+\bibitem{arkvale}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "ArkVale".}
+\bibitem{shadowkv}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "ShadowKV".}
+\bibitem{infinigen}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "InfiniGen".}
+\bibitem{headinfer}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "HeadInfer".}
+
+% --- Benchmarks / datasets used in Setup (\S\ref{sec:setup}) or cited
+% by \cite{retrievalheadsdynamic}'s own eval ---
+\bibitem{longbench}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "LongBench".}
+\bibitem{ruler}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "RULER".}
+\bibitem{scbench}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "SCBench".}
+\bibitem{math500}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "MATH-500"
+    (used directly as this paper's own CoT regime, \S\ref{sec:setup}).}
+\bibitem{hotpotqa}
+    \NEEDPROSE{full title, author list, arXiv id, venue -- "HotpotQA".}
+
 \end{thebibliography}
 
 \end{document}
