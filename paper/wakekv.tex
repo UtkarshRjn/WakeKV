@@ -497,6 +497,69 @@ synthetic-data check.}
 \label{tab:evict}
 \end{table}
 
+\textbf{Preliminary comparison against three published methods.} Beyond
+the controlled Frozen/Evict ablations above, we implemented three
+further policies as faithful, cited reimplementations in the same
+simulator: \textbf{SnapKV} \cite{snapkv} (one-shot prefill selection by
+observation-window attention score, frozen through decoding),
+\textbf{uniform R-KV} \cite{rkv} (periodic, importance-ranked
+destructive pruning to a shared budget), and \textbf{ReasonAlloc}
+\cite{reasonalloc} (online per-head budget reallocation by an
+importance-threshold demand count with a starvation floor). Each has a
+declared simplification where the logged data doesn't support the full
+method (e.g.\ R-KV/ReasonAlloc's importance score omits the redundancy
+term, since raw key vectors aren't logged) --- see
+\texttt{wakekv/residency.py} for the exact gap and citation per policy.
+
+Comparing at the same nominal budget label is misleading here: unlike
+Frozen/Reactive/Evict, these three only prune at periodic intervals
+(every 128 steps by default), so their \emph{realized} memory can run
+several times higher than the budget label between prunings. We
+therefore apply the same matched-memory interpolation used for C2 above
+--- holding realized memory constant, not the budget label. Under that
+correction, reactive wins \textbf{32/32} matched-memory comparisons
+across all three baselines and five combos where a valid comparison
+exists (Table~\ref{tab:baselines}); at the uncorrected nominal-budget
+label, by contrast, reactive appears to \emph{lose} more often than it
+wins (6/16, 6/16, 5/16 against SnapKV/R-KV/ReasonAlloc respectively) ---
+entirely because the baselines are silently spending several times the
+memory to get there. We report both readings; the memory-matched one is
+the fair comparison and the fixed methodology error is documented in the
+repository history for transparency.
+
+One combo/policy pair is explicitly excluded rather than reported: on
+Mistral-7B/NIAH, R-KV and ReasonAlloc's periodic pruning (default every
+128 steps) never triggered even once, because NIAH's generated answers
+are shorter than that interval on this model --- their reported miss
+rate (0.000, at memory identical to the unbounded Full policy) reflects
+never having pruned at all, not a real operating point. We flag rather
+than count this as a win; a rerun with a pruning interval matched to the
+task's actual decode length is needed for a meaningful reading there,
+left as future work.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{llrrr}
+\toprule
+Regime & Model & vs.\ SnapKV & vs.\ R-KV & vs.\ ReasonAlloc \\
+\midrule
+Multi-turn & 3B & 4/4 & 4/4 & 4/4 \\
+NIAH & 3B & 4/4 & n/a\rlap{$^\dagger$} & n/a$^\dagger$ \\
+CoT & 1.5B & n/a$^\dagger$ & 3/3 & 3/3 \\
+CoT & 8B & n/a$^\dagger$ & 3/3 & 3/3 \\
+NIAH & Mistral-7B & 4/4 & excluded\rlap{$^\ddagger$} & excluded$^\ddagger$ \\
+\bottomrule
+\end{tabular}
+\caption{Reactive wins / matched-memory comparisons possible, per
+baseline. $^\dagger$No operating point of that baseline fell inside
+reactive's own tested memory range on that combo, so no interpolated
+comparison exists (not a loss). $^\ddagger$Excluded: pruning interval
+mismatch with NIAH's short decode length on this model, not a real
+measurement (see text). Reactive wins all 32 valid comparisons.}
+\label{tab:baselines}
+\end{table}
+
 \section{Related Work}
 \label{sec:related}
 
@@ -654,10 +717,20 @@ GPU.
 \begin{thebibliography}{9}
 \bibitem{retrievalheadsdynamic}
     \NEEDPROSE{Retrieval Heads are Dynamic (arXiv:2602.11162), full citation.}
+\bibitem{snapkv}
+    Li et al., \NEEDPROSE{full title and author list}, arXiv:2404.14469
+    (NeurIPS 2024). Official code:
+    \url{https://github.com/FasterDecoding/SnapKV}.
+\bibitem{rkv}
+    Cai et al., \NEEDPROSE{full title and author list}, arXiv:2505.24133.
+    Official code: \url{https://github.com/Zefan-Cai/R-KV}.
+\bibitem{reasonalloc}
+    Liu et al., \NEEDPROSE{full title and author list}, arXiv:2606.11164v1.
+    No official code released (confirmed by direct search as of this
+    paper's writing).
 \NEEDPROSE{FlexiCache (arXiv:2511.00868, MLSys 2026)}
 \NEEDPROSE{HeteroCache (arXiv:2601.13684, ACL 2026)}
-\NEEDPROSE{ReasonAlloc (arXiv:2606.11164)}
-\NEEDPROSE{Ada-KV, LAVa, DynamicKV, CAKE, HeadKV, DuoAttention, RazorAttention, MoA, ThinKV, R-KV, ArkVale, ShadowKV, InfiniGen, HeadInfer, SCBench, LongBench, RULER, HotpotQA/MATH-500 --- to be filled from notes/big\_four\_deep\_read.md.}
+\NEEDPROSE{Ada-KV, LAVa, DynamicKV, CAKE, HeadKV, DuoAttention, RazorAttention, MoA, ThinKV, ArkVale, ShadowKV, InfiniGen, HeadInfer, SCBench, LongBench, RULER, HotpotQA/MATH-500 --- to be filled from notes/big\_four\_deep\_read.md.}
 \end{thebibliography}
 
 \end{document}
