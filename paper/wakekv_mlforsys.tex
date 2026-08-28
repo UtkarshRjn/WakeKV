@@ -95,21 +95,21 @@ a shared nominal label.
 
 Our contributions include:
 \begin{enumerate}[leftmargin=1.4em,itemsep=1pt,topsep=2pt]
-\item \textbf{Head non-stationarity, replicated and extended:} on three
-models and two regimes competing frozen-role methods do not evaluate
-(long CoT, multi-turn).
-\item \textbf{A signal study with an honest negative result:} cheap
-per-head signals cannot predict wake-ups well enough to prefetch, though
-a structurally different, data-driven signal (generated-token identity)
-does in CoT specifically; wake-ups are also real but not tightly
-detectable enough for a coarse trigger.
-\item \textbf{A page-granularity residency simulator} showing reactive
-LRU + fetch-on-demand dominates frozen classification (C2), and that
+\item \textbf{Head non-stationarity:} Replicated and extended across
+three models and two regimes competing frozen-role methods do not
+evaluate (long CoT, multi-turn).
+\item \textbf{Signal study:} Cheap per-head signals cannot predict
+wake-ups well enough to prefetch, though a structurally different,
+data-driven signal (generated-token identity) does in CoT specifically;
+wake-ups are real but not tightly detectable enough for a coarse
+trigger.
+\item \textbf{Residency simulator:} At page granularity, reactive LRU +
+fetch-on-demand dominates frozen classification (C2), and
 \emph{reversible} offload specifically (not just dynamism) beats
-destructive eviction (C3) and three cited published baselines, across
-five real model/regime combinations.
-\item \textbf{Preliminary real-system confirmation} on the
-throughput/quality direction.
+destructive eviction (C3) and three cited baselines, across five real
+model/regime combinations.
+\item \textbf{Real-system confirmation:} Preliminary results confirm
+the throughput/quality direction.
 \end{enumerate}
 
 \section{Setup}
