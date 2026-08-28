@@ -89,6 +89,7 @@ score and binary copy-paste score following
 (11GB); 8B and the real-system follow-up: A30 (24GB).
 
 \section{Results}
+\label{sec:results}
 
 \begin{table}[h]
 \centering
@@ -204,7 +205,13 @@ tightly enough for a coarse trigger: a 2\%-of-steps trigger catches only
 
 \textbf{Reactive residency wins.} We simulate, at page granularity over
 the same logged attention: \emph{full} (ceiling), \emph{frozen}
-(FlexiCache-style, offline stable/unstable split), \emph{reactive}
+(FlexiCache-style, offline stable/unstable split)\footnote{Threshold and
+cadence parameters throughout are each baseline's own published
+configuration, not tuned by us: frozen's 25\% unstable-head split and
+16-step stable-head refresh are FlexiCache's; the 128-step recompression/
+reallocation cadence for SnapKV/R-KV/ReasonAlloc below is each paper's
+own default. Only the per-head budget sweep itself is our own design
+axis.}, \emph{reactive}
 (WakeKV: LRU-capped per-head budget, CPU-reservoir fetch-on-demand,
 nothing destroyed), and \emph{evict} (identical LRU schedule to
 reactive, same budget, but destructive demotion --- isolating
