@@ -13,6 +13,7 @@
 \usepackage{xcolor}
 
 \newcommand{\NEEDPROSE}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\NEEDFIG}[1]{\textcolor{red}{[FIG PENDING: #1]}}
 
 \title{When Do Attention Heads Change Their Minds?\\
        A Case for Reactive KV-Cache Residency}
@@ -20,7 +21,7 @@
 \author{%
   Utkarsh Ranjan \\
   UC San Diego \\
-  \texttt{\NEEDPROSE{email}} \\
+  \texttt{utkarsh@ucsd.edu} \\
 }
 
 \begin{document}
@@ -105,24 +106,51 @@ comparator's, at every real point where a fair (matched-memory or
 matched-budget) comparison was possible. All on real data; see
 Table~\ref{tab:m2b2} for the real-system throughput/quality result and
 the main text for the one C3 exception. Details below.}
+\label{tab:results}
 \end{table}
 
-\textbf{Heads shift during decoding.} Let $A_t$ be the set of heads (or
-top-$k$ pages) active at decode step $t$. Adjacent-step Jaccard,
-$J(A_t,A_{t+1}) = |A_t\cap A_{t+1}| / |A_t\cup A_{t+1}|$, is $0.53$
+\textbf{Heads shift during decoding.} Let $A_t$ denote the set of heads
+(or top-$k$ pages) a given head attends to at decode step $t$. We track
+step-to-step stability with the adjacent-step Jaccard index:
+\begin{equation}
+J(A_t, A_{t+1}) \;=\; \frac{|A_t \cap A_{t+1}|}{|A_t \cup A_{t+1}|}.
+\label{eq:jaccard}
+\end{equation}
+$J=1$ means the attended set is unchanged between consecutive steps;
+$J=0$ means complete turnover. Measured adjacent-step Jaccard is $0.53$
 (continuous score, NIAH), within \cite{retrievalheadsdynamic}'s reported
-$0.28$--$0.51$ range (Table~\ref{tab:churn}). ``Unstable'' heads
-(Table~\ref{tab:churn}) are those with mean Random-Corrected Overlap
-$\mathrm{RCO}(A,B)=\max(0,\,(\nicefrac{|A\cap B|}{K}-\nicefrac{K}{N})/(1-\nicefrac{K}{N}))
-< 0.5$ across a 16-step window (FlexiCache's temporal-stability
-statistic; $K{=}\min(|A|,|B|)$, $N{=}$ candidate-pool size, so
-$\mathrm{RCO}{=}0$ at chance overlap and $1$ when identical). The
+$0.28$--$0.51$ range (Table~\ref{tab:churn}).
+
+``Unstable'' heads (Table~\ref{tab:churn}) are identified with
+FlexiCache's temporal-stability statistic, Random-Corrected Overlap,
+which discounts raw top-$K$ overlap by its chance level under a
+candidate pool of size $N$:
+\begin{equation}
+\mathrm{RCO}(A,B) \;=\; \max\!\left(0,\; \frac{\nicefrac{|A\cap B|}{K} - \nicefrac{K}{N}}{1 - \nicefrac{K}{N}}\right), \qquad K = \min(|A|,|B|).
+\label{eq:rco}
+\end{equation}
+$\mathrm{RCO}=0$ at chance-level overlap and $\mathrm{RCO}=1$ when the
+two sets coincide exactly. A head is flagged unstable when its mean RCO
+over a trailing 16-step window falls below $0.5$. Under this test, the
 fraction of heads with $\geq 1$ HeteroCache-style drift event (a
 windowed-median overlap-vs-baseline dropping below $\tau{=}0.5$; the
 baseline resets after each event) ranges $0.63$--$0.85$ across regimes
 and holds at 8B ($0.79$ on CoT), where a small chronically-unstable tail
 ($2$--$9\%$) coexists with a large majority of occasionally-shifting
 heads.
+
+\begin{figure}[h]
+\centering
+\NEEDFIG{per-step per-head activity heatmap, CoT run, 12 most-active
+heads --- visualizes the churn Table~\ref{tab:churn} quantifies}
+\vspace{2.6cm}
+\caption{Per-head attention-target activity over decode steps (CoT,
+R1-Distill-1.5B). Each row is one head; color marks which top-$k$ pages
+it attends to at each step. Bands of stable color would indicate a
+frozen-role head; the visible reshuffling is what Eq.~\ref{eq:jaccard}
+and Table~\ref{tab:churn} summarize numerically.}
+\label{fig:churn-heatmap}
+\end{figure}
 
 \begin{table}[h]
 \centering
@@ -146,14 +174,19 @@ stays high at 0.79, so the case is undiminished at scale.}
 \label{tab:churn}
 \end{table}
 
-\textbf{Cheap prediction fails, honestly.} Grading four candidate
+\textbf{Cheap prediction fails, honestly.} We grade four candidate
 signals (page-overlap change, windowed-median drift, entropy trend,
-needle-mass delta) under a \emph{causal} per-head z-score ---
-$z_t = (x_t - \mu_{t-w:t}) / \sigma_{t-w:t}$, using only the trailing
-$w{=}32$-step window's mean/std (never future values), so it is
-computable online, unlike an oracle per-head threshold (tunes a cutoff
-\emph{after} seeing labels) or a single global cutoff (too strict, since
-heads churn at different baseline rates) --- the best signal achieves
+needle-mass delta) under a \emph{causal} per-head z-score, computed from
+only the trailing $w{=}32$-step window's mean $\mu$ and standard
+deviation $\sigma$ (never future values, so the score is usable online):
+\begin{equation}
+z_t \;=\; \frac{x_t - \mu_{t-w:t}}{\sigma_{t-w:t}}.
+\label{eq:zscore}
+\end{equation}
+This is the deployable middle ground between an oracle per-head
+threshold (tunes a cutoff \emph{after} seeing labels --- not causal) and
+a single global cutoff (too strict, since heads churn at different
+baseline rates). Under Eq.~\ref{eq:zscore}, the best signal achieves
 precision $0.08$--$0.20$ at
 recall $0.41$--$0.70$: over $80\%$ of alarms are false while
 $30$--$60\%$ of real wake-ups are missed. An ensemble (vote $\geq 2$ of
@@ -188,6 +221,18 @@ share the identical LRU cap), reactive beats evict in \textbf{19/20}
 settings; the one exception (8B/CoT, tightest budget) is explained by
 resident-set composition drift after the first page reactive recovers
 that evict destroyed, not a flaw in the comparison.
+
+\begin{figure}[h]
+\centering
+\NEEDFIG{memory-vs-miss-rate Pareto curves, reactive vs.\ frozen vs.\
+evict, overlaid for one NIAH and one CoT combo}
+\vspace{2.6cm}
+\caption{Matched-memory/matched-budget Pareto fronts. Reactive's curve
+sits at or below frozen's at every one of the 17 matched memory points
+and below evict's at 19 of 20 matched budgets (Table~\ref{tab:results}),
+i.e.\ lower miss rate for the same resident footprint.}
+\label{fig:pareto}
+\end{figure}
 
 \textbf{Beating published baselines.} We further implement three
 faithful, cited reimplementations: SnapKV~\cite{snapkv} (one-shot
@@ -279,49 +324,107 @@ stand on their own.
 \begin{thebibliography}{99}
 
 \bibitem{retrievalheadsdynamic}
-    \NEEDPROSE{full title and author list}, arXiv:2602.11162 (ACL 2026).
+    Yuping Lin, Zitao Li, Yue Xing, Pengfei He, Yingqian Cui, Yaliang Li,
+    Bolin Ding, Jingren Zhou, Jiliang Tang. Retrieval Heads are Dynamic.
+    arXiv:2602.11162 (ACL 2026).
 \bibitem{flexicache}
-    \NEEDPROSE{full title and author list}, arXiv:2511.00868v2 (MLSys 2026).
+    Nazmul Takbir, Hamidreza Alikhani, Nikil Dutt, Sangeetha Abdu Jyothi.
+    FlexiCache: Leveraging Temporal Stability of Attention Heads for
+    Efficient KV Cache Management. arXiv:2511.00868v2 (MLSys 2026).
 \bibitem{heterocache}
-    \NEEDPROSE{full title and author list}, arXiv:2601.13684v2 (ACL 2026 Main).
+    Zhiyuan Shi, Qibo Qiu, Feng Xue, Zhonglin Jiang, Li Yu, Jian Jiang,
+    Xiaofei He, Wenxiao Wang. HeteroCache: A Dynamic Retrieval Approach
+    to Heterogeneous KV Cache Compression for Long-Context LLM
+    Inference. arXiv:2601.13684v2 (ACL 2026 Main).
 \bibitem{reasonalloc}
-    Liu et al., \NEEDPROSE{full title and author list}, arXiv:2606.11164v1.
+    Wenhao Liu, Hao Shi, Yunhe Li, Weizhi Fei, Xiangyuan Wang, Mengzhe
+    Ruan, Hanxu Hou, Peisong Wang, Linqi Song, Shuang Qiu. ReasonAlloc:
+    Hierarchical Decoding-Time KV Cache Budget Allocation for Reasoning
+    Models. arXiv:2606.11164v1.
 \bibitem{snapkv}
-    Li et al., \NEEDPROSE{full title and author list}, arXiv:2404.14469 (NeurIPS 2024).
+    Yuhong Li, Yingbing Huang, Bowen Yang, Bharat Venkitesh, Acyr
+    Locatelli, Hanchen Ye, Tianle Cai, Patrick Lewis, Deming Chen.
+    SnapKV: LLM Knows What You are Looking for Before Generation.
+    arXiv:2404.14469 (NeurIPS 2024).
 \bibitem{rkv}
-    Cai et al., \NEEDPROSE{full title and author list}, arXiv:2505.24133.
+    Zefan Cai, Wen Xiao, Hanshi Sun, Cheng Luo, Yikai Zhang, Ke Wan,
+    Yucheng Li, Yeyang Zhou, Li-Wen Chang, Jiuxiang Gu, Zhen Dong, Anima
+    Anandkumar, Abedelkadir Asi, Junjie Hu. R-KV: Redundancy-aware KV
+    Cache Compression for Reasoning Models. arXiv:2505.24133.
 \bibitem{duoattention}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Guangxuan Xiao, Jiaming Tang, Jingwei Zuo, Junxian Guo, Shang Yang,
+    Haotian Tang, Yao Fu, Song Han. DuoAttention: Efficient Long-Context
+    LLM Inference with Retrieval and Streaming Heads. arXiv:2410.10819
+    (ICLR 2025).
 \bibitem{razorattention}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Hanlin Tang, Yang Lin, Jing Lin, Qingsen Han, Shikuan Hong, Yiwu Yao,
+    Gongyi Wang. RazorAttention: Efficient KV Cache Compression Through
+    Retrieval Heads. arXiv:2407.15891.
 \bibitem{moa}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Tianyu Fu, Haofeng Huang, Xuefei Ning, Genghan Zhang, Boju Chen,
+    Tianqi Wu, Hongyi Wang, Zixiao Huang, Shiyao Li, Shengen Yan, Guohao
+    Dai, Huazhong Yang, Yu Wang. Mixture of Attention Spans: Optimizing
+    LLM Inference Efficiency with Heterogeneous Sliding-Window Lengths.
+    arXiv:2406.14909 (CoLM 2025).
 \bibitem{headkv}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Yu Fu, Zefan Cai, Abedelkadir Asi, Wayne Xiong, Yue Dong, Wen Xiao.
+    Not All Heads Matter: A Head-Level KV Cache Compression Method with
+    Integrated Retrieval and Reasoning. arXiv:2410.19258 (ICLR 2025).
 \bibitem{adakv}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Yuan Feng, Junlin Lv, Yukun Cao, Xike Xie, S. Kevin Zhou. Ada-KV:
+    Optimizing KV Cache Eviction by Adaptive Budget Allocation for
+    Efficient LLM Inference. arXiv:2407.11550 (NeurIPS 2025).
 \bibitem{cake}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Ziran Qin, Yuchen Cao, Mingbao Lin, Wen Hu, Shixuan Fan, Ke Cheng,
+    Weiyao Lin, Jianguo Li. CAKE: Cascading and Adaptive KV Cache
+    Eviction with Layer Preferences. arXiv:2503.12491 (ICLR 2025).
 \bibitem{lava}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Yiqun Shen, Song Yuan, Zhengze Zhang, Xiaoliang Wang, Daxin Jiang,
+    Nguyen Cam-Tu. LAVa: Layer-wise KV Cache Eviction with Dynamic
+    Budget Allocation. arXiv:2509.09754.
 \bibitem{dynamickv}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Xiabin Zhou, Wenbin Wang, Minyan Zeng, Jiaxian Guo, Xuebo Liu, Li
+    Shen, Min Zhang, Liang Ding. DynamicKV: Task-Aware Adaptive KV Cache
+    Compression for Long Context LLMs. arXiv:2412.14838 (EMNLP 2025
+    Findings).
 \bibitem{gkv}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Mengqi Liao, Lu Wang, Chaoyun Zhang, Zekai Shen, Xiaowei Mao, Si
+    Qin, Qingwei Lin, Saravan Rajmohan, Dongmei Zhang, Huaiyu Wan. G-KV:
+    Decoding-Time KV Cache Eviction with Global Attention.
+    arXiv:2512.00504.
 \bibitem{thinkv}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Akshat Ramachandran, Marina Neseem, Charbel Sakr, Rangharajan
+    Venkatesan, Brucek Khailany, Tushar Krishna. ThinKV: Thought-Adaptive
+    KV Cache Compression for Efficient Reasoning Models. arXiv:2510.01290
+    (ICLR 2026, Oral).
 \bibitem{scope}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Jialong Wu, Zhenglin Wang, Linhai Zhang, Yilong Lai, Yulan He, Deyu
+    Zhou. SCOPE: Optimizing Key-Value Cache Compression in Long-context
+    Generation. arXiv:2412.13649 (ACL 2025).
 \bibitem{arkvale}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Renze Chen, Zhuofeng Wang, Beiquan Cao, Tong Wu, Size Zheng, Xiuhong
+    Li, Xuechao Wei, Shengen Yan, Meng Li, Yun Liang. ArkVale: Efficient
+    Generative LLM Inference with Recallable Key-Value Eviction. NeurIPS
+    2024.
 \bibitem{shadowkv}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Hanshi Sun, Li-Wen Chang, Wenlei Bao, Size Zheng, Ningxin Zheng, Xin
+    Liu, Harry Dong, Yuejie Chi, Beidi Chen. ShadowKV: KV Cache in
+    Shadows for High-Throughput Long-Context LLM Inference.
+    arXiv:2410.21465 (ICML 2025, Spotlight).
 \bibitem{infinigen}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Wonbeom Lee, Jungi Lee, Junghwan Seo, Jaewoong Sim. InfiniGen:
+    Efficient Generative Inference of Large Language Models with Dynamic
+    KV Cache Management. arXiv:2406.19707 (OSDI 2024).
 \bibitem{headinfer}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Cheng Luo, Zefan Cai, Hanshi Sun, Jinqi Xiao, Bo Yuan, Wen Xiao,
+    Junjie Hu, Jiawei Zhao, Beidi Chen, Anima Anandkumar. HeadInfer:
+    Memory-Efficient LLM Inference by Head-wise Offloading.
+    arXiv:2502.12574.
 \bibitem{math500}
-    \NEEDPROSE{full title, author list, arXiv id, venue}.
+    Hunter Lightman, Vineet Kosaraju, Yura Burda, Harri Edwards, Bowen
+    Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, Karl
+    Cobbe. Let's Verify Step by Step. arXiv:2305.20050. (Introduces the
+    MATH-500 test subset used in this paper.)
 
 \end{thebibliography}
 
