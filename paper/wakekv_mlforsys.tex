@@ -13,6 +13,7 @@
 \usepackage{xcolor}
 
 \newcommand{\NEEDPROSE}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\NEEDFIG}[1]{\textcolor{red}{[FIG PENDING: #1]}}
 
 \title{When Do Attention Heads Change Their Minds?\\
        A Case for Reactive KV-Cache Residency}
@@ -105,24 +106,51 @@ comparator's, at every real point where a fair (matched-memory or
 matched-budget) comparison was possible. All on real data; see
 Table~\ref{tab:m2b2} for the real-system throughput/quality result and
 the main text for the one C3 exception. Details below.}
+\label{tab:results}
 \end{table}
 
-\textbf{Heads shift during decoding.} Let $A_t$ be the set of heads (or
-top-$k$ pages) active at decode step $t$. Adjacent-step Jaccard,
-$J(A_t,A_{t+1}) = |A_t\cap A_{t+1}| / |A_t\cup A_{t+1}|$, is $0.53$
+\textbf{Heads shift during decoding.} Let $A_t$ denote the set of heads
+(or top-$k$ pages) a given head attends to at decode step $t$. We track
+step-to-step stability with the adjacent-step Jaccard index:
+\begin{equation}
+J(A_t, A_{t+1}) \;=\; \frac{|A_t \cap A_{t+1}|}{|A_t \cup A_{t+1}|}.
+\label{eq:jaccard}
+\end{equation}
+$J=1$ means the attended set is unchanged between consecutive steps;
+$J=0$ means complete turnover. Measured adjacent-step Jaccard is $0.53$
 (continuous score, NIAH), within \cite{retrievalheadsdynamic}'s reported
-$0.28$--$0.51$ range (Table~\ref{tab:churn}). ``Unstable'' heads
-(Table~\ref{tab:churn}) are those with mean Random-Corrected Overlap
-$\mathrm{RCO}(A,B)=\max(0,\,(\nicefrac{|A\cap B|}{K}-\nicefrac{K}{N})/(1-\nicefrac{K}{N}))
-< 0.5$ across a 16-step window (FlexiCache's temporal-stability
-statistic; $K{=}\min(|A|,|B|)$, $N{=}$ candidate-pool size, so
-$\mathrm{RCO}{=}0$ at chance overlap and $1$ when identical). The
+$0.28$--$0.51$ range (Table~\ref{tab:churn}).
+
+``Unstable'' heads (Table~\ref{tab:churn}) are identified with
+FlexiCache's temporal-stability statistic, Random-Corrected Overlap,
+which discounts raw top-$K$ overlap by its chance level under a
+candidate pool of size $N$:
+\begin{equation}
+\mathrm{RCO}(A,B) \;=\; \max\!\left(0,\; \frac{\nicefrac{|A\cap B|}{K} - \nicefrac{K}{N}}{1 - \nicefrac{K}{N}}\right), \qquad K = \min(|A|,|B|).
+\label{eq:rco}
+\end{equation}
+$\mathrm{RCO}=0$ at chance-level overlap and $\mathrm{RCO}=1$ when the
+two sets coincide exactly. A head is flagged unstable when its mean RCO
+over a trailing 16-step window falls below $0.5$. Under this test, the
 fraction of heads with $\geq 1$ HeteroCache-style drift event (a
 windowed-median overlap-vs-baseline dropping below $\tau{=}0.5$; the
 baseline resets after each event) ranges $0.63$--$0.85$ across regimes
 and holds at 8B ($0.79$ on CoT), where a small chronically-unstable tail
 ($2$--$9\%$) coexists with a large majority of occasionally-shifting
 heads.
+
+\begin{figure}[h]
+\centering
+\NEEDFIG{per-step per-head activity heatmap, CoT run, 12 most-active
+heads --- visualizes the churn Table~\ref{tab:churn} quantifies}
+\vspace{2.6cm}
+\caption{Per-head attention-target activity over decode steps (CoT,
+R1-Distill-1.5B). Each row is one head; color marks which top-$k$ pages
+it attends to at each step. Bands of stable color would indicate a
+frozen-role head; the visible reshuffling is what Eq.~\ref{eq:jaccard}
+and Table~\ref{tab:churn} summarize numerically.}
+\label{fig:churn-heatmap}
+\end{figure}
 
 \begin{table}[h]
 \centering
@@ -146,14 +174,19 @@ stays high at 0.79, so the case is undiminished at scale.}
 \label{tab:churn}
 \end{table}
 
-\textbf{Cheap prediction fails, honestly.} Grading four candidate
+\textbf{Cheap prediction fails, honestly.} We grade four candidate
 signals (page-overlap change, windowed-median drift, entropy trend,
-needle-mass delta) under a \emph{causal} per-head z-score ---
-$z_t = (x_t - \mu_{t-w:t}) / \sigma_{t-w:t}$, using only the trailing
-$w{=}32$-step window's mean/std (never future values), so it is
-computable online, unlike an oracle per-head threshold (tunes a cutoff
-\emph{after} seeing labels) or a single global cutoff (too strict, since
-heads churn at different baseline rates) --- the best signal achieves
+needle-mass delta) under a \emph{causal} per-head z-score, computed from
+only the trailing $w{=}32$-step window's mean $\mu$ and standard
+deviation $\sigma$ (never future values, so the score is usable online):
+\begin{equation}
+z_t \;=\; \frac{x_t - \mu_{t-w:t}}{\sigma_{t-w:t}}.
+\label{eq:zscore}
+\end{equation}
+This is the deployable middle ground between an oracle per-head
+threshold (tunes a cutoff \emph{after} seeing labels --- not causal) and
+a single global cutoff (too strict, since heads churn at different
+baseline rates). Under Eq.~\ref{eq:zscore}, the best signal achieves
 precision $0.08$--$0.20$ at
 recall $0.41$--$0.70$: over $80\%$ of alarms are false while
 $30$--$60\%$ of real wake-ups are missed. An ensemble (vote $\geq 2$ of
@@ -188,6 +221,18 @@ share the identical LRU cap), reactive beats evict in \textbf{19/20}
 settings; the one exception (8B/CoT, tightest budget) is explained by
 resident-set composition drift after the first page reactive recovers
 that evict destroyed, not a flaw in the comparison.
+
+\begin{figure}[h]
+\centering
+\NEEDFIG{memory-vs-miss-rate Pareto curves, reactive vs.\ frozen vs.\
+evict, overlaid for one NIAH and one CoT combo}
+\vspace{2.6cm}
+\caption{Matched-memory/matched-budget Pareto fronts. Reactive's curve
+sits at or below frozen's at every one of the 17 matched memory points
+and below evict's at 19 of 20 matched budgets (Table~\ref{tab:results}),
+i.e.\ lower miss rate for the same resident footprint.}
+\label{fig:pareto}
+\end{figure}
 
 \textbf{Beating published baselines.} We further implement three
 faithful, cited reimplementations: SnapKV~\cite{snapkv} (one-shot
