@@ -14,6 +14,7 @@
 
 \newcommand{\NEEDPROSE}[1]{\textcolor{red}{[TODO: #1]}}
 \newcommand{\NEEDFIG}[1]{\textcolor{red}{[FIG PENDING: #1]}}
+\newcommand{\wingreen}[1]{\textcolor{green!50!black}{#1}}
 
 \title{When Do Attention Heads Change Their Minds?\\
        A Case for Reactive KV-Cache Residency}
@@ -163,7 +164,7 @@ NIAH & Qwen2.5-3B & 0.53 (cont.) & 0.064 & 0.63 \\
 CoT & R1-Distill-1.5B & 0.82 (bin.) & 0.023 & 0.85 \\
 Multi-turn & Qwen2.5-3B & 0.79 (bin.) & 0.085 & 0.76 \\
 \midrule
-CoT & \textbf{R1-Distill-8B} & \textbf{0.93 (bin.)} & \textbf{0.042} & \textbf{0.79} \\
+CoT & \textbf{R1-Distill-8B} & \wingreen{\textbf{0.93 (bin.)}} & \wingreen{\textbf{0.042}} & \wingreen{\textbf{0.79}} \\
 \bottomrule
 \end{tabular}
 \caption{Head-shift metrics by regime. Adjacent Jaccard: continuous
@@ -269,11 +270,11 @@ for a 5-point quality cost.
 Config & Rerank int.\ & Gen tok/s & vs stock & LB \% \\
 \midrule
 Stock FlexiCache & 16 (native) & 114.4 & 1.00$\times$ & 100 \\
-Reactive (WakeKV) & 1 & 153.6 & 1.34$\times$ & 97.4 \\
-Reactive & 2 & 193.3 & 1.69$\times$ & 97.1 \\
-Reactive & 4 & 226.3 & 1.98$\times$ & 99.1 \\
-Reactive & 8 & 254.2 & 2.22$\times$ & 97.9 \\
-Reactive & 16 & 266.6 & 2.33$\times$ & 95.0 \\
+Reactive (WakeKV) & 1 & 153.6 & \wingreen{1.34$\times$} & 97.4 \\
+Reactive & 2 & 193.3 & \wingreen{1.69$\times$} & 97.1 \\
+Reactive & 4 & 226.3 & \wingreen{1.98$\times$} & 99.1 \\
+Reactive & 8 & 254.2 & \wingreen{2.22$\times$} & 97.9 \\
+Reactive & 16 & 266.6 & \wingreen{2.33$\times$} & 95.0 \\
 \bottomrule
 \end{tabular}
 \caption{Real-system throughput$\times$quality sweep (A30, Mistral-7B,
@@ -321,6 +322,7 @@ and hardware coverage is future work; the honest negative prediction
 result and the simulator-level Pareto/reversibility/baseline results
 stand on their own.
 
+\clearpage
 \begin{thebibliography}{99}
 
 \bibitem{retrievalheadsdynamic}
