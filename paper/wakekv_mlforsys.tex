@@ -107,14 +107,22 @@ Table~\ref{tab:m2b2} for the real-system throughput/quality result and
 the main text for the one C3 exception. Details below.}
 \end{table}
 
-\textbf{Heads shift during decoding.} Adjacent-step Jaccard of the
-active head set is $0.53$ (continuous score, NIAH), within
-\cite{retrievalheadsdynamic}'s reported $0.28$--$0.51$ range
-(Table~\ref{tab:churn}). The fraction of heads with $\geq 1$
-HeteroCache-style drift event ranges $0.63$--$0.85$ across regimes and
-holds at 8B ($0.79$ on CoT), where a small chronically-unstable tail
-($2$--$9\%$, mean RCO$<0.5$) coexists with a large majority of
-occasionally-shifting heads.
+\textbf{Heads shift during decoding.} Let $A_t$ be the set of heads (or
+top-$k$ pages) active at decode step $t$. Adjacent-step Jaccard,
+$J(A_t,A_{t+1}) = |A_t\cap A_{t+1}| / |A_t\cup A_{t+1}|$, is $0.53$
+(continuous score, NIAH), within \cite{retrievalheadsdynamic}'s reported
+$0.28$--$0.51$ range (Table~\ref{tab:churn}). ``Unstable'' heads
+(Table~\ref{tab:churn}) are those with mean Random-Corrected Overlap
+$\mathrm{RCO}(A,B)=\max(0,\,(\nicefrac{|A\cap B|}{K}-\nicefrac{K}{N})/(1-\nicefrac{K}{N}))
+< 0.5$ across a 16-step window (FlexiCache's temporal-stability
+statistic; $K{=}\min(|A|,|B|)$, $N{=}$ candidate-pool size, so
+$\mathrm{RCO}{=}0$ at chance overlap and $1$ when identical). The
+fraction of heads with $\geq 1$ HeteroCache-style drift event (a
+windowed-median overlap-vs-baseline dropping below $\tau{=}0.5$; the
+baseline resets after each event) ranges $0.63$--$0.85$ across regimes
+and holds at 8B ($0.79$ on CoT), where a small chronically-unstable tail
+($2$--$9\%$) coexists with a large majority of occasionally-shifting
+heads.
 
 \begin{table}[h]
 \centering
@@ -140,9 +148,13 @@ stays high at 0.79, so the case is undiminished at scale.}
 
 \textbf{Cheap prediction fails, honestly.} Grading four candidate
 signals (page-overlap change, windowed-median drift, entropy trend,
-needle-mass delta) under a causal per-head z-score --- the only
-deployable grading, versus an oracle per-head threshold or a single
-global cutoff --- the best signal achieves precision $0.08$--$0.20$ at
+needle-mass delta) under a \emph{causal} per-head z-score ---
+$z_t = (x_t - \mu_{t-w:t}) / \sigma_{t-w:t}$, using only the trailing
+$w{=}32$-step window's mean/std (never future values), so it is
+computable online, unlike an oracle per-head threshold (tunes a cutoff
+\emph{after} seeing labels) or a single global cutoff (too strict, since
+heads churn at different baseline rates) --- the best signal achieves
+precision $0.08$--$0.20$ at
 recall $0.41$--$0.70$: over $80\%$ of alarms are false while
 $30$--$60\%$ of real wake-ups are missed. An ensemble (vote $\geq 2$ of
 4) never beats the single best signal. A structurally different
@@ -162,11 +174,16 @@ the same logged attention: \emph{full} (ceiling), \emph{frozen}
 (WakeKV: LRU-capped per-head budget, CPU-reservoir fetch-on-demand,
 nothing destroyed), and \emph{evict} (identical LRU schedule to
 reactive, same budget, but destructive demotion --- isolating
-reversibility as a variable). At matched memory (interpolating onto each
-frozen point, since raw budget labels sit at different memory), reactive
-beats frozen at every comparable operating point across five real
-model/regime combinations (three model families, 1.5B--7B):
-\textbf{17/17}. At matched budget (no interpolation needed --- both
+reversibility as a variable). Sweeping the per-head budget $B$ traces
+each policy's own (memory, miss-rate) curve; since frozen and reactive
+reach different memory at the same nominal $B$, we interpolate
+reactive's curve, piecewise-linearly between its two bracketing
+measured points, onto each of frozen's $17$ actually-measured memory
+values (one per swept $B$, pooled across the five combos; $3$ of the
+$20$ possible points are dropped where reactive's own sweep never
+reached that much memory, not a loss). At each of those $17$ real,
+matched memory levels, reactive's interpolated miss rate is $\leq$
+frozen's: \textbf{17/17}. At matched budget (no interpolation needed --- both
 share the identical LRU cap), reactive beats evict in \textbf{19/20}
 settings; the one exception (8B/CoT, tightest budget) is explained by
 resident-set composition drift after the first page reactive recovers
