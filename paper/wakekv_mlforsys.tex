@@ -96,8 +96,8 @@ a shared nominal label.
 Our contributions include:
 \begin{enumerate}[leftmargin=1.4em,itemsep=1pt,topsep=2pt]
 \item \textbf{Head non-stationarity:} Replicated and extended across
-three models and two regimes competing frozen-role methods do not
-evaluate (long CoT, multi-turn).
+three models, including two regimes that competing frozen-role methods
+do not evaluate (long CoT, multi-turn).
 \item \textbf{Signal study:} Cheap per-head signals cannot predict
 wake-ups well enough to prefetch, though a structurally different,
 data-driven signal (generated-token identity) does in CoT specifically;
@@ -108,8 +108,11 @@ fetch-on-demand dominates frozen classification (C2), and
 \emph{reversible} offload specifically (not just dynamism) beats
 destructive eviction (C3) and three cited baselines, across five real
 model/regime combinations.
-\item \textbf{Real-system confirmation:} Preliminary results confirm
-the throughput/quality direction.
+\item \textbf{Real-system confirmation:} On A30/Mistral-7B via a
+FlexiCache/vLLM shim, WakeKV reactive beats stock throughput at every
+rerank interval ($1.34$--$2.33\times$) while holding $95$--$99\%$ of
+LongBench quality, confirming the simulator-level direction on real
+hardware.
 \end{enumerate}
 
 \section{Setup}
