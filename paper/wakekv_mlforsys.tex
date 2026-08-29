@@ -316,7 +316,7 @@ that evict destroyed, not a flaw in the comparison.
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.33\textwidth]{figures/pareto_curves.png}
+\includegraphics[width=0.45\textwidth]{figures/pareto_curves.png}
 \caption{Memory-vs-miss-rate Pareto fronts, reactive vs.\ frozen vs.\
 evict, across all three regimes (NIAH, CoT, multi-turn). Reactive's
 curve sits at or below frozen's at every one of the 17 matched memory
@@ -328,22 +328,18 @@ footprint.}
 
 \subsection{Baseline Comparison}
 
-We further implement three
-faithful, cited reimplementations: SnapKV~\cite{snapkv} (one-shot
-prefill selection by observation-window score, frozen through decode),
-uniform R-KV~\cite{rkv} (periodic importance-ranked destructive
-pruning), and ReasonAlloc~\cite{reasonalloc} (online per-head
-reallocation with a starvation floor), each with a declared
-simplification where logged data doesn't support the full method (e.g.\
-no redundancy term, since raw keys aren't logged). Comparing at the same
-nominal budget label is misleading here, since these three only prune
-periodically and can silently use several times the memory; under the
-same matched-memory correction used for the frozen comparison above,
-reactive wins \textbf{32/32}
-valid comparisons. (One combo/policy pair, Mistral-7B/NIAH vs.\
-R-KV/ReasonAlloc, is explicitly excluded, not counted: the default
-128-step pruning interval never triggered on that model's short NIAH
-answers, so the reported result is not a real operating point.)
+We further implement three faithful, cited reimplementations:
+SnapKV~\cite{snapkv} (prefill selection, frozen through decode),
+uniform R-KV~\cite{rkv} (periodic destructive pruning), and
+ReasonAlloc~\cite{reasonalloc} (online reallocation with a starvation
+floor), each with a declared simplification where logged data doesn't
+support the full method (e.g.\ no redundancy term, raw keys aren't
+logged). Comparing at the same nominal budget label is misleading
+here, since these three prune periodically and can silently use
+several times the memory; under the same matched-memory correction
+above, reactive wins \textbf{32/32} valid comparisons. (Mistral-7B/NIAH
+vs.\ R-KV/ReasonAlloc is excluded: the 128-step pruning interval never
+triggered on that model's short NIAH answers.)
 
 \subsection{Real-Hardware Deployment}
 
@@ -379,24 +375,21 @@ $R{=}1$ is the WakeKV design point; $R{=}16$ is the Pareto knee here
 \label{tab:m2b2}
 \end{table}
 
-\enlargethispage{4\baselineskip}
-\section{Related Work}
-
-\S1 lays out the gap this closes; citations grouped by category.
-Static-role, offline/prefill-only: DuoAttention~\cite{duoattention},
-RazorAttention~\cite{razorattention}, MoA~\cite{moa},
-HeadKV~\cite{headkv}, Ada-KV~\cite{adakv}, CAKE~\cite{cake},
-LAVa~\cite{lava}, DynamicKV~\cite{dynamickv}. Decode-time but
-destructive: R-KV~\cite{rkv}, G-KV~\cite{gkv}, ThinKV~\cite{thinkv},
-SCOPE~\cite{scope}, ReasonAlloc~\cite{reasonalloc}. Reversible but
-static-role: FlexiCache~\cite{flexicache}, HeteroCache~\cite{heterocache},
-ArkVale~\cite{arkvale}, ShadowKV~\cite{shadowkv},
-InfiniGen~\cite{infinigen}, HeadInfer~\cite{headinfer}.
-
+\enlargethispage{3.3\baselineskip}
 \section{Limitations}
 
-Scout-scale models; simulator counts \emph{misses}, not stall
-\emph{time}; real-system result is preliminary.
+Scout-scale models (1.5B--8B); five CoT runs (407 wake events) but
+only one multi-turn run (73 events, coarser). The 2602.11162 binary
+retrieval score is thresholded, so adjacent-step Jaccard reads higher
+under it than under the continuous score; we report both in
+Table~\ref{tab:churn}. The simulator counts \emph{misses}, not stall
+\emph{time}, at page granularity from top-$k$, against
+FlexiCache-\emph{style} policies, not their exact code. The
+real-system result is narrow (single model/regime, one A30) and
+preliminary. Real-system reversible-vs-evict and baseline comparisons
+need patching an emergent property of FlexiCache's continuous-batching
+internals (designed, not implemented). Broader coverage is future
+work; simulator-level results stand on their own.
 
 \clearpage
 \begin{thebibliography}{99}
