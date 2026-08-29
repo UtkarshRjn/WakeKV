@@ -11,6 +11,7 @@
 \usepackage{nicefrac}
 \usepackage{microtype}
 \usepackage{xcolor}
+\usepackage{graphicx}
 \usepackage{enumitem}
 \usepackage{titlesec}
 \usepackage{tikz}
@@ -315,13 +316,13 @@ that evict destroyed, not a flaw in the comparison.
 
 \begin{figure}[h]
 \centering
-\NEEDFIG{memory-vs-miss-rate Pareto curves, reactive vs.\ frozen vs.\
-evict, overlaid for one NIAH and one CoT combo}
-\vspace{0.2cm}
-\caption{Matched-memory/matched-budget Pareto fronts. Reactive's curve
-sits at or below frozen's at every one of the 17 matched memory points
-and below evict's at 19 of 20 matched budgets (Table~\ref{tab:results}),
-i.e.\ lower miss rate for the same resident footprint.}
+\includegraphics[width=0.33\textwidth]{figures/pareto_curves.png}
+\caption{Memory-vs-miss-rate Pareto fronts, reactive vs.\ frozen vs.\
+evict, across all three regimes (NIAH, CoT, multi-turn). Reactive's
+curve sits at or below frozen's at every one of the 17 matched memory
+points and below evict's at 19 of 20 matched budgets
+(Table~\ref{tab:results}), i.e.\ lower miss rate for the same resident
+footprint.}
 \label{fig:pareto}
 \end{figure}
 
@@ -378,6 +379,7 @@ $R{=}1$ is the WakeKV design point; $R{=}16$ is the Pareto knee here
 \label{tab:m2b2}
 \end{table}
 
+\enlargethispage{4\baselineskip}
 \section{Related Work}
 
 \S1 lays out the gap this closes; citations grouped by category.
@@ -391,11 +393,10 @@ static-role: FlexiCache~\cite{flexicache}, HeteroCache~\cite{heterocache},
 ArkVale~\cite{arkvale}, ShadowKV~\cite{shadowkv},
 InfiniGen~\cite{infinigen}, HeadInfer~\cite{headinfer}.
 
-\enlargethispage{3\baselineskip}
 \section{Limitations}
 
-Scout-scale models (1.5B--8B); simulator counts \emph{misses}, not
-stall \emph{time}; real-system result is single-model, preliminary.
+Scout-scale models; simulator counts \emph{misses}, not stall
+\emph{time}; real-system result is preliminary.
 
 \clearpage
 \begin{thebibliography}{99}
