@@ -12,6 +12,12 @@
 \usepackage{microtype}
 \usepackage{xcolor}
 \usepackage{enumitem}
+\usepackage{titlesec}
+\titlespacing*{\section}{0pt}{8pt}{4pt}
+\titlespacing*{\subsection}{0pt}{6pt}{2pt}
+\setlength{\textfloatsep}{6pt plus 2pt minus 2pt}
+\setlength{\intextsep}{6pt plus 2pt minus 2pt}
+\setlength{\floatsep}{6pt plus 2pt minus 2pt}
 
 \newcommand{\NEEDPROSE}[1]{\textcolor{red}{[TODO: #1]}}
 \newcommand{\NEEDFIG}[1]{\textcolor{red}{[FIG PENDING: #1]}}
@@ -115,19 +121,14 @@ LongBench quality, confirming the simulator-level direction on real
 hardware.
 \end{enumerate}
 
-\section{Setup}
-
-\textbf{Models/regimes.} Qwen2.5-3B-Instruct, DeepSeek-R1-Distill-Qwen-1.5B,
-DeepSeek-R1-Distill-Llama-8B; NIAH (needle retrieval, $\approx$5000-token
-filler), long CoT (MATH-500~\cite{math500}, up to 2048 generated
-tokens), and multi-turn recall. We log, at every decode step and head,
-the top-$k$ attended positions and weights ($k=64$), a continuous needle
-score and binary copy-paste score following
-\cite{retrievalheadsdynamic}'s Eq.~1--2. 1.5B/3B measurements: RTX~2080~Ti
-(11GB); 8B and the real-system follow-up: A30 (24GB).
-
 \section{Results}
 \label{sec:results}
+
+We measure whether heads shift roles during decoding, test whether
+cheap signals can predict those shifts, simulate reactive residency
+against frozen classification and destructive eviction, then evaluate
+WakeKV on real hardware. Table~\ref{tab:results} summarizes the
+headline result of each; details follow.
 
 \begin{table}[h]
 \centering
@@ -149,7 +150,20 @@ the main text for the one C3 exception. Details below.}
 \label{tab:results}
 \end{table}
 
-\textbf{Heads shift during decoding.} Let $A_t$ denote the set of heads
+\subsection{Evaluation Setup}
+
+Qwen2.5-3B-Instruct, DeepSeek-R1-Distill-Qwen-1.5B,
+DeepSeek-R1-Distill-Llama-8B; NIAH (needle retrieval, $\approx$5000-token
+filler), long CoT (MATH-500~\cite{math500}, up to 2048 generated
+tokens), and multi-turn recall. We log, at every decode step and head,
+the top-$k$ attended positions and weights ($k=64$), a continuous needle
+score and binary copy-paste score following
+\cite{retrievalheadsdynamic}'s Eq.~1--2. 1.5B/3B measurements: RTX~2080~Ti
+(11GB); 8B and the real-system follow-up: A30 (24GB).
+
+\subsection{Head Non-Stationarity}
+
+Let $A_t$ denote the set of heads
 (or top-$k$ pages) a given head attends to at decode step $t$. We track
 step-to-step stability with the adjacent-step Jaccard index:
 \begin{equation}
@@ -183,7 +197,7 @@ heads.
 \centering
 \NEEDFIG{per-step per-head activity heatmap, CoT run, 12 most-active
 heads, visualizing what Table~\ref{tab:churn} quantifies}
-\vspace{0.5cm}
+\vspace{0.2cm}
 \caption{Per-head attention-target activity over decode steps (CoT,
 R1-Distill-1.5B). Each row is one head; color marks which top-$k$ pages
 it attends to at each step. Bands of stable color would indicate a
@@ -214,7 +228,9 @@ stays high at 0.79, so the case is undiminished at scale.}
 \label{tab:churn}
 \end{table}
 
-\textbf{Cheap prediction fails, honestly.} We grade four candidate
+\subsection{Signal Study}
+
+We grade four candidate
 signals (page-overlap change, windowed-median drift, entropy trend,
 needle-mass delta) under a \emph{causal} per-head z-score, computed from
 only the trailing $w{=}32$-step window's mean $\mu$ and standard
@@ -241,7 +257,9 @@ bursty (mean concentration $z=+9.7$ vs.\ shuffle null on CoT) but not
 tightly enough for a coarse trigger: a 2\%-of-steps trigger catches only
 54\% of wake-ups. Both cheap proactive routes are ruled out.
 
-\textbf{Reactive residency wins.} We simulate, at page granularity over
+\subsection{Residency Simulation}
+
+We simulate, at page granularity over
 the same logged attention: \emph{full} (ceiling), \emph{frozen}
 (FlexiCache-style, offline stable/unstable split)\footnote{Threshold and
 cadence parameters throughout are each baseline's own published
@@ -272,7 +290,7 @@ that evict destroyed, not a flaw in the comparison.
 \centering
 \NEEDFIG{memory-vs-miss-rate Pareto curves, reactive vs.\ frozen vs.\
 evict, overlaid for one NIAH and one CoT combo}
-\vspace{0.5cm}
+\vspace{0.2cm}
 \caption{Matched-memory/matched-budget Pareto fronts. Reactive's curve
 sits at or below frozen's at every one of the 17 matched memory points
 and below evict's at 19 of 20 matched budgets (Table~\ref{tab:results}),
@@ -280,7 +298,9 @@ i.e.\ lower miss rate for the same resident footprint.}
 \label{fig:pareto}
 \end{figure}
 
-\textbf{Beating published baselines.} We further implement three
+\subsection{Baseline Comparison}
+
+We further implement three
 faithful, cited reimplementations: SnapKV~\cite{snapkv} (one-shot
 prefill selection by observation-window score, frozen through decode),
 uniform R-KV~\cite{rkv} (periodic importance-ranked destructive
@@ -296,16 +316,17 @@ R-KV/ReasonAlloc, is explicitly excluded, not counted: the default
 128-step pruning interval never triggered on that model's short NIAH
 answers, so the reported result is not a real operating point.)
 
-\textbf{Preliminary real-system confirmation.} A FlexiCache/vLLM shim
+\subsection{Real-System Confirmation}
+
+A FlexiCache/vLLM shim
 (two config overrides: zero ``stable'' heads, rerank every step) turns
 stock FlexiCache into WakeKV reactive. On Mistral-7B (LEval $8$k
 $\to$ $1000$, A30), reactive beats stock throughput at every rerank
 interval (Table~\ref{tab:m2b2}) while holding $95$--$99\%$ of LongBench
-mean quality with no monotonic erosion. Part of the win is doing less
-attention work per step (0 vs.\ 64 dense heads), not purely better
-memory management: holding rerank frequency fixed at stock's native
-cadence, dropping to 0 dense heads alone yields $2.33\times$ throughput
-for a 5-point quality cost.
+quality with no monotonic erosion. Part of the win is less attention
+work per step (0 vs.\ 64 dense heads), not purely memory management:
+holding rerank frequency fixed at stock's cadence, 0 dense heads alone
+yields $2.33\times$ throughput for a 5-point quality cost.
 
 \begin{table}[h]
 \centering
@@ -331,9 +352,8 @@ $R{=}1$ is the WakeKV design point; $R{=}16$ is the Pareto knee here
 
 \section{Related Work}
 
-\S1 lays out the mechanism-level gap this paper closes; here we group
-the full citation set by which side of it each falls on.
-Static-role, offline/prefill-only: DuoAttention~\cite{duoattention},
+\S1 lays out the gap this paper closes; here we group the citations by
+category. Static-role, offline/prefill-only: DuoAttention~\cite{duoattention},
 RazorAttention~\cite{razorattention}, MoA~\cite{moa},
 HeadKV~\cite{headkv}, Ada-KV~\cite{adakv}, CAKE~\cite{cake},
 LAVa~\cite{lava}, DynamicKV~\cite{dynamickv}. Decode-time but
@@ -345,19 +365,17 @@ InfiniGen~\cite{infinigen}, HeadInfer~\cite{headinfer}.
 
 \section{Limitations}
 
-Scout-scale models (1.5B--8B); five CoT runs (407 wake events) but only
-one multi-turn run (73 events, coarser). The 2602.11162 binary score is
-thresholded, so adjacent-step Jaccard reads higher under it than under
-the continuous score; we report both in Table~\ref{tab:churn}. The
-simulator counts \emph{misses}, not stall \emph{time}, works at page
-granularity approximated from top-$k$, and compares against
-FlexiCache-\emph{style} policies, not their exact code. The real-system
-result is narrow (single model/regime, one A30) and preliminary.
-Real-system
-reversible-vs-evict and baseline comparisons need patching an emergent
-property of FlexiCache's continuous-batching internals (designed, not
-implemented, given the live-tensor risk). Broader coverage is future
-work; the simulator-level results stand on their own.
+Scout-scale models (1.5B--8B); five CoT runs (407 events) but one
+multi-turn run (73 events). The 2602.11162 binary score is thresholded
+(Jaccard reads higher under it; we report both, Table~\ref{tab:churn}).
+The simulator counts \emph{misses}, not stall \emph{time}, at page
+granularity from top-$k$, against FlexiCache-\emph{style} policies, not
+their exact code. The real-system result is single-model/regime and
+preliminary; reversible-vs-evict and baseline comparisons need
+patching an emergent property of FlexiCache's continuous-batching
+internals (designed, not implemented).
+Broader coverage is future work; simulator-level results stand on their
+own.
 
 \clearpage
 \begin{thebibliography}{99}
