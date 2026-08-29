@@ -5,8 +5,8 @@ publish on arXiv** — keep the LaTeX draft in-repo as a raw internal
 artifact while Phase 2b is built. Rawness is expected; this outline
 tells you what the draft covers and what still needs a pass.*
 
-**Working title:** *When Do Attention Heads Change Their Minds? A Case for
-Reactive KV-Cache Residency*
+**Working title:** *WakeKV: Reactive, Reversible KV Residency for Heads
+That Change Their Minds*
 
 **Length:** 4–6 pages + refs (arXiv preprint, later target = NeurIPS 2026
 Efficient ML workshop or ICLR 2027 workshop). This is deliberately a
