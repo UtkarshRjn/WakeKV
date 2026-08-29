@@ -245,7 +245,7 @@ NIAH & Qwen2.5-3B & 0.53 (cont.) & 0.064 & 0.63 \\
 CoT & R1-Distill-1.5B & 0.82 (bin.) & 0.023 & 0.85 \\
 Multi-turn & Qwen2.5-3B & 0.79 (bin.) & 0.085 & 0.76 \\
 \midrule
-CoT & \textbf{R1-Distill-8B} & \wingreen{\textbf{0.93 (bin.)}} & \wingreen{\textbf{0.042}} & \wingreen{\textbf{0.79}} \\
+CoT & R1-Distill-8B & 0.93 (bin.) & 0.042 & 0.79 \\
 \bottomrule
 \end{tabular}
 \caption{Head-shift metrics by regime. Adjacent Jaccard: continuous
@@ -370,17 +370,18 @@ $R{=}1$ is the WakeKV design point; $R{=}16$ is the Pareto knee here
 \enlargethispage{2\baselineskip}
 \section{Limitations}
 
-Scout-scale models (1.5B--8B); five CoT runs (407 wake events) but
-only one multi-turn run (73 events, coarser). The 2602.11162 binary
-retrieval score is thresholded, so adjacent-step Jaccard reads higher
-under it than under the continuous score; we report both in
-Table~\ref{tab:churn}. The simulator counts \emph{misses}, not stall
+Our models are scout-scale (1.5B--8B), and regime coverage is uneven:
+five CoT runs (407 events) against a single multi-turn run (73 events,
+coarser). Because the 2602.11162 binary score is thresholded,
+adjacent-step Jaccard reads higher under it than under the continuous
+score, so we report both in Table~\ref{tab:churn}. The simulator also
+makes simplifying choices: it counts \emph{misses}, not stall
 \emph{time}, at page granularity from top-$k$, against
-FlexiCache-\emph{style} policies, not their exact code. The
+FlexiCache-\emph{style} policies rather than their exact code. The
 real-system result is narrow (single model/regime, one A30) and
-preliminary. Real-system reversible-vs-evict and baseline comparisons
-need patching FlexiCache's continuous-batching internals (designed,
-not implemented). Broader coverage is future work.
+preliminary; a real-system reversible-vs-evict and baseline
+comparison needs patching FlexiCache's internals (designed, not
+implemented).
 
 \clearpage
 \begin{thebibliography}{99}
