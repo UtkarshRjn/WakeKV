@@ -372,17 +372,15 @@ $R{=}1$ is the WakeKV design point; $R{=}16$ is the Pareto knee here
 \section{Limitations}
 
 Our models are scout-scale (1.5B--8B), and regime coverage is uneven:
-five CoT runs (407 events) against a single multi-turn run (73 events,
-coarser). Because the 2602.11162 binary score is thresholded,
-adjacent-step Jaccard reads higher under it than under the continuous
-score, so we report both in Table~\ref{tab:churn}. The simulator also
-makes simplifying choices: it counts \emph{misses}, not stall
-\emph{time}, at page granularity from top-$k$, against
-FlexiCache-\emph{style} policies rather than their exact code. The
-real-system result is narrow (single model/regime, one A30) and
-preliminary; a real-system reversible-vs-evict and baseline
-comparison needs patching FlexiCache's internals (designed, not
-implemented).
+five CoT runs against a single multi-turn run. Because the 2602.11162
+binary score is thresholded, Jaccard reads higher under it than under
+the continuous score, so we report both in Table~\ref{tab:churn}. The
+simulator also simplifies: it counts \emph{misses}, not stall
+\emph{time}, against FlexiCache-\emph{style} policies rather than
+their exact code. The real-system result is narrow (single
+model/regime, one A30) and preliminary; a reversible-vs-evict/baseline
+comparison there needs patching FlexiCache's internals (designed, not
+built). Simulator-level results stand on their own.
 
 \clearpage
 \begin{thebibliography}{99}
