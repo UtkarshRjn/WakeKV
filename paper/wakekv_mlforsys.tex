@@ -13,11 +13,13 @@
 \usepackage{xcolor}
 \usepackage{enumitem}
 \usepackage{titlesec}
-\titlespacing*{\section}{0pt}{8pt}{4pt}
-\titlespacing*{\subsection}{0pt}{6pt}{2pt}
-\setlength{\textfloatsep}{6pt plus 2pt minus 2pt}
-\setlength{\intextsep}{6pt plus 2pt minus 2pt}
-\setlength{\floatsep}{6pt plus 2pt minus 2pt}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\titlespacing*{\section}{0pt}{5pt}{3pt}
+\titlespacing*{\subsection}{0pt}{4pt}{1pt}
+\setlength{\textfloatsep}{4pt plus 1pt minus 2pt}
+\setlength{\intextsep}{4pt plus 1pt minus 2pt}
+\setlength{\floatsep}{4pt plus 1pt minus 2pt}
 
 \newcommand{\NEEDPROSE}[1]{\textcolor{red}{[TODO: #1]}}
 \newcommand{\NEEDFIG}[1]{\textcolor{red}{[FIG PENDING: #1]}}
@@ -110,10 +112,9 @@ data-driven signal (generated-token identity) does in CoT specifically;
 wake-ups are real but not tightly detectable enough for a coarse
 trigger.
 \item \textbf{Residency simulator:} At page granularity, reactive LRU +
-fetch-on-demand dominates frozen classification (C2), and
-\emph{reversible} offload specifically (not just dynamism) beats
-destructive eviction (C3) and three cited baselines, across five real
-model/regime combinations.
+fetch-on-demand dominates frozen classification, and \emph{reversible}
+offload specifically (not just dynamism) beats destructive eviction and
+three cited baselines, across five real model/regime combinations.
 \item \textbf{Real-system confirmation:} On A30/Mistral-7B via a
 FlexiCache/vLLM shim, WakeKV reactive beats stock throughput at every
 rerank interval ($1.34$--$2.33\times$) while holding $95$--$99\%$ of
@@ -137,8 +138,8 @@ headline result of each; details follow.
 \toprule
 Comparison (matched memory/budget) & Combos tested & Reactive wins \\
 \midrule
-vs.\ Frozen, at matched memory (C2) & 5 model/regime & \textbf{17 of 17} \\
-vs.\ Evict, same LRU schedule, matched budget (C3) & 5 model/regime & \textbf{19 of 20} \\
+vs.\ Frozen, at matched memory & 5 model/regime & \textbf{17 of 17} \\
+vs.\ Evict, same LRU schedule, matched budget & 5 model/regime & \textbf{19 of 20} \\
 vs.\ SnapKV / R-KV / ReasonAlloc, matched memory & 5 model/regime & \textbf{32 of 32} \\
 \bottomrule
 \end{tabular}
@@ -146,7 +147,7 @@ vs.\ SnapKV / R-KV / ReasonAlloc, matched memory & 5 model/regime & \textbf{32 o
 comparator's, at every real point where a fair (matched-memory or
 matched-budget) comparison was possible. All on real data; see
 Table~\ref{tab:m2b2} for the real-system throughput/quality result and
-the main text for the one C3 exception. Details below.}
+the main text for the one evict-comparison exception. Details below.}
 \label{tab:results}
 \end{table}
 
@@ -192,19 +193,6 @@ baseline resets after each event) ranges $0.63$--$0.85$ across regimes
 and holds at 8B ($0.79$ on CoT), where a small chronically-unstable tail
 ($2$--$9\%$) coexists with a large majority of occasionally-shifting
 heads.
-
-\begin{figure}[h]
-\centering
-\NEEDFIG{per-step per-head activity heatmap, CoT run, 12 most-active
-heads, visualizing what Table~\ref{tab:churn} quantifies}
-\vspace{0.2cm}
-\caption{Per-head attention-target activity over decode steps (CoT,
-R1-Distill-1.5B). Each row is one head; color marks which top-$k$ pages
-it attends to at each step. Bands of stable color would indicate a
-frozen-role head; the visible reshuffling is what Eq.~\ref{eq:jaccard}
-and Table~\ref{tab:churn} summarize numerically.}
-\label{fig:churn-heatmap}
-\end{figure}
 
 \begin{table}[h]
 \centering
@@ -259,6 +247,30 @@ tightly enough for a coarse trigger: a 2\%-of-steps trigger catches only
 
 \subsection{Residency Simulation}
 
+\begin{figure}[h]
+\centering
+\scalebox{0.85}{
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners, minimum width=3.0cm, minimum height=0.85cm, align=center, font=\small},
+  lbl/.style={font=\scriptsize, align=center},
+  >=Latex
+]
+\node[box, fill=blue!8] (gpu) {GPU resident\\(per-head LRU, budget $B$)};
+\node[box, fill=black!5, right=3.4cm of gpu] (cpu) {CPU reservoir\\(recoverable)};
+\node[lbl, below=0.55cm of gpu, text width=3.0cm] (destroyed) {$\varnothing$ destroyed\\(unrecoverable)};
+\draw[->, thick] (gpu.north) to[bend left=22] node[lbl, above] {demote: over\\budget (LRU)} (cpu.north);
+\draw[->, thick] (cpu.south) to[bend left=22] node[lbl, below] {fetch: miss,\\wanted again} (gpu.south);
+\draw[->, thick, dashed, black!55] (gpu) -- node[lbl, left, black!55, xshift=-2pt] {evict\\(foil)} (destroyed);
+\end{tikzpicture}
+}
+\caption{WakeKV's reactive residency mechanism (solid): a demoted head's
+state moves to a recoverable CPU reservoir, not destroyed, and is
+fetched back on a miss. The \emph{evict} foil (dashed) isolates
+reversibility as a variable: identical LRU schedule, but demotion
+destroys state instead of reserving it.}
+\label{fig:mechanism}
+\end{figure}
+
 We simulate, at page granularity over
 the same logged attention: \emph{full} (ceiling), \emph{frozen}
 (FlexiCache-style, offline stable/unstable split)\footnote{Threshold and
@@ -310,7 +322,8 @@ simplification where logged data doesn't support the full method (e.g.\
 no redundancy term, since raw keys aren't logged). Comparing at the same
 nominal budget label is misleading here, since these three only prune
 periodically and can silently use several times the memory; under the
-same matched-memory correction used for C2, reactive wins \textbf{32/32}
+same matched-memory correction used for the frozen comparison above,
+reactive wins \textbf{32/32}
 valid comparisons. (One combo/policy pair, Mistral-7B/NIAH vs.\
 R-KV/ReasonAlloc, is explicitly excluded, not counted: the default
 128-step pruning interval never triggered on that model's short NIAH
@@ -367,15 +380,12 @@ InfiniGen~\cite{infinigen}, HeadInfer~\cite{headinfer}.
 
 Scout-scale models (1.5B--8B); five CoT runs (407 events) but one
 multi-turn run (73 events). The 2602.11162 binary score is thresholded
-(Jaccard reads higher under it; we report both, Table~\ref{tab:churn}).
-The simulator counts \emph{misses}, not stall \emph{time}, at page
-granularity from top-$k$, against FlexiCache-\emph{style} policies, not
-their exact code. The real-system result is single-model/regime and
-preliminary; reversible-vs-evict and baseline comparisons need
-patching an emergent property of FlexiCache's continuous-batching
-internals (designed, not implemented).
-Broader coverage is future work; simulator-level results stand on their
-own.
+(we report both scores, Table~\ref{tab:churn}). The simulator counts
+\emph{misses}, not stall \emph{time}, at page granularity from top-$k$,
+against FlexiCache-\emph{style} policies, not their exact code. The
+real-system result is single-model/regime and preliminary;
+reversible-vs-evict/baseline comparisons need patching FlexiCache's
+internals (designed, unimplemented).
 
 \clearpage
 \begin{thebibliography}{99}
