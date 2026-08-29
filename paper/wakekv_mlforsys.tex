@@ -258,32 +258,24 @@ stays high at 0.79, so the case is undiminished at scale.}
 
 \subsection{Wake-up Prediction}
 
-We grade four candidate
-signals (page-overlap change, windowed-median drift, entropy trend,
-needle-mass delta) under a \emph{causal} per-head z-score, computed from
-only the trailing $w{=}32$-step window's mean $\mu$ and standard
-deviation $\sigma$ (never future values, so the score is usable online):
+We grade four candidate signals (page-overlap change, windowed-median
+drift, entropy trend, needle-mass delta) under a \emph{causal} per-head
+z-score, using only the trailing $w{=}32$-step window's mean and
+standard deviation (online-computable):
 \begin{equation}
 z_t \;=\; \frac{x_t - \mu_{t-w:t}}{\sigma_{t-w:t}}.
 \label{eq:zscore}
 \end{equation}
-This is the deployable middle ground between an oracle per-head
-threshold (tunes a cutoff \emph{after} seeing labels, not causal) and
-a single global cutoff (too strict, since heads churn at different
-baseline rates). Under Eq.~\ref{eq:zscore}, the best signal achieves
-precision $0.08$--$0.20$ at
-recall $0.41$--$0.70$: over $80\%$ of alarms are false while
-$30$--$60\%$ of real wake-ups are missed. An ensemble (vote $\geq 2$ of
-4) never beats the single best signal. A structurally different
-candidate clears a real bar: discovering, via a Bonferroni-corrected
-two-proportion $z$-test on a discovery half of the data and evaluating
-on a held-out half (no hand-picked marker vocabulary), whether the
-just-generated token predicts a wake burst. Held-out F1
-$0.53$--$0.62$ on CoT, $4$--$5\times$ every attention-derived signal, but
-zero markers survive on NIAH/multi-turn. Wake-ups are also temporally
-bursty (mean concentration $z=+9.7$ vs.\ shuffle null on CoT) but not
-tightly enough for a coarse trigger: a 2\%-of-steps trigger catches only
-54\% of wake-ups. Both cheap proactive routes are ruled out.
+The best signal achieves precision $0.08$--$0.20$ at recall
+$0.41$--$0.70$; an ensemble (vote $\geq 2$ of 4) never beats the single
+best signal. A structurally different candidate does clear a bar:
+whether the just-generated token predicts a wake burst
+(Bonferroni-corrected, held out) reaches F1 $0.53$--$0.62$ on CoT,
+$4$--$5\times$ every attention-derived signal, but zero markers survive
+on NIAH/multi-turn. Wake-ups are also bursty ($z=+9.7$ vs.\ shuffle
+null on CoT) but not tightly enough for a coarse trigger (54\% caught
+at a 2\%-of-steps trigger rate). Both cheap proactive routes are ruled
+out.
 
 \subsection{Reactive vs.\ Frozen and Evict}
 
@@ -316,7 +308,7 @@ that evict destroyed, not a flaw in the comparison.
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.45\textwidth]{figures/pareto_curves.png}
+\includegraphics[width=0.97\textwidth]{figures/pareto_curves.png}
 \caption{Memory-vs-miss-rate Pareto fronts, reactive vs.\ frozen vs.\
 evict, across all three regimes (NIAH, CoT, multi-turn). Reactive's
 curve sits at or below frozen's at every one of the 17 matched memory
@@ -375,7 +367,7 @@ $R{=}1$ is the WakeKV design point; $R{=}16$ is the Pareto knee here
 \label{tab:m2b2}
 \end{table}
 
-\enlargethispage{3.3\baselineskip}
+\enlargethispage{2\baselineskip}
 \section{Limitations}
 
 Scout-scale models (1.5B--8B); five CoT runs (407 wake events) but
@@ -387,9 +379,8 @@ Table~\ref{tab:churn}. The simulator counts \emph{misses}, not stall
 FlexiCache-\emph{style} policies, not their exact code. The
 real-system result is narrow (single model/regime, one A30) and
 preliminary. Real-system reversible-vs-evict and baseline comparisons
-need patching an emergent property of FlexiCache's continuous-batching
-internals (designed, not implemented). Broader coverage is future
-work; simulator-level results stand on their own.
+need patching FlexiCache's continuous-batching internals (designed,
+not implemented). Broader coverage is future work.
 
 \clearpage
 \begin{thebibliography}{99}
