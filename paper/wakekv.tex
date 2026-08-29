@@ -19,8 +19,8 @@
 \newcommand{\NEEDPROSE}[1]{\textcolor{red}{[TODO: #1]}}
 \newcommand{\NEEDFIG}{\textcolor{red}{[FIG PENDING]}}
 
-\title{When Do Attention Heads Change Their Minds?\\
-       A Case for Reactive KV-Cache Residency}
+\title{WakeKV: Reactive, Reversible KV Residency\\
+       for Heads That Change Their Minds}
 \author{Utkarsh Ranjan\\ UC San Diego}
 \date{Draft --- \today}
 
@@ -80,7 +80,7 @@ Our contributions are:
         regimes, with two novel supporting regimes (long CoT, scripted
         multi-turn recall) that competing frozen-role methods do not
         evaluate (\S\ref{sec:churn}).
-    \item An \emph{honest negative} result: cheap per-head signals, and
+    \item \textbf{An honest negative result}: cheap per-head signals, and
         an ensemble of them, cannot predict wake-ups well enough to
         prefetch under a fair evaluation; a structurally different
         signal (generated-token identity, discovered without a
@@ -89,12 +89,14 @@ Our contributions are:
     \item A characterization of wake-up burstiness --- real but not
         tightly detectable --- ruling out coarse boundary triggers as
         well (\S\ref{sec:cluster}).
-    \item A page-granularity residency simulator showing reactive LRU +
-        fetch-on-demand dominates FlexiCache-style frozen classification
-        on the memory/miss Pareto (C2), and that reversible offload
-        specifically --- not just LRU dynamism --- beats destructive
-        eviction at matched budget (C3), across five real model/regime
-        combinations (\S\ref{sec:sim}).
+    \item \textbf{WakeKV}, a reactive residency policy (LRU-capped
+        per-head budget over a CPU reservoir, fetch-on-demand, nothing
+        destroyed), evaluated in a page-granularity simulator: it
+        dominates FlexiCache-style frozen classification on the
+        memory/miss Pareto (C2), and reversible offload specifically ---
+        not just LRU dynamism --- beats destructive eviction at matched
+        budget (C3), across five real model/regime combinations
+        (\S\ref{sec:sim}).
 \end{enumerate}
 
 \textbf{Explicit scope.} The paper's primary contributions are the
