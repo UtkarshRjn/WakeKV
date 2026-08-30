@@ -321,7 +321,7 @@ recovers a page evict destroyed, not a flaw in the comparison.
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.75\textwidth]{figures/pareto_curves.png}
+\includegraphics[width=0.64\textwidth]{figures/pareto_curves.png}
 \caption{Memory-vs-miss-rate Pareto fronts, reactive vs.\ frozen vs.\
 evict, across NIAH, CoT, and multi-turn. Reactive sits at or below
 frozen's at all 17 matched memory points and below evict's at 19 of 20
@@ -335,11 +335,10 @@ footprint.}
 We further implement three faithful, cited reimplementations:
 SnapKV~\cite{snapkv} (frozen prefill selection), uniform
 R-KV~\cite{rkv} (periodic pruning), and ReasonAlloc~\cite{reasonalloc}
-(online reallocation), each with a declared simplification (no
-redundancy term, raw keys unlogged). The same nominal label is
-misleading since these three prune at several times the memory; under
-the same matched-memory correction, reactive wins \textbf{32/32} valid
-comparisons across the four eligible combos (Table~\ref{tab:results}$^\dagger$).
+(online reallocation), each with a declared simplification. The same
+nominal label is misleading since these three prune at several times
+the memory; under the same correction, reactive wins \textbf{32/32}
+comparisons (Table~\ref{tab:results}$^\dagger$).
 
 \subsection{Real-Hardware Deployment}
 
@@ -377,14 +376,18 @@ $R{=}1$ is the WakeKV design point; $R{=}16$ is the Pareto knee here
 \enlargethispage{9\baselineskip}
 \section{Limitations}
 
-Our models are scout-scale (1.5B--8B) with uneven regime coverage
-(five CoT runs, one multi-turn run); the thresholded 2602.11162 binary
-score reads Jaccard higher than the continuous score
-(Table~\ref{tab:churn}). The simulator counts \emph{misses}, not stall
-\emph{time}, against FlexiCache-\emph{style} policies. The real-system
-result is narrow (single model/regime, one A30); a reversible-vs-evict
-comparison there needs patching FlexiCache's internals (designed, not
-built). Simulator-level results stand on their own.
+Our models are scout-scale (1.5B--8B), and regime coverage is uneven:
+five CoT runs against a single multi-turn run. The binary drift score
+from \cite{retrievalheadsdynamic} is thresholded, so it reads Jaccard
+higher than the continuous score does; we report both in
+Table~\ref{tab:churn} rather than pick one. The simulator itself
+simplifies too: it counts \emph{misses}, not stall \emph{time}, and
+compares against FlexiCache-\emph{style} policies rather than
+FlexiCache's actual code. The real-system result is narrower still ---
+one model/regime, one A30 --- and preliminary; running the same
+reversible-vs-evict/baseline comparison on real hardware would need
+patching FlexiCache's internals, which we have designed but not yet
+built. Even so, the simulator-level results stand on their own.
 
 \clearpage
 \begin{thebibliography}{99}
