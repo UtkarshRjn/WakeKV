@@ -496,13 +496,17 @@ built). Simulator-level results stand on their own.
 \label{sec:appendix}
 
 Table~\ref{tab:appendix-sweep} gives the raw miss rate for every policy
-at every swept budget $B \in \{8,16,32,64\}$, for four of the five
-model/regime combos (all on real logged data; this is the table
+at every swept budget $B \in \{8,16,32,64\}$, for all five model/regime
+combos (all on real logged data; this is the table
 Table~\ref{tab:results}'s win-counts and Table~\ref{tab:churn} are
-computed from). Mistral-7B/NIAH's win-count (4/4 vs.\ frozen at matched
-memory, 4/4 vs.\ evict at matched budget) is already computed and
-reported in the main text; its full per-budget sweep is pending
-re-extraction from the original run and is marked ``--'' below.
+computed from). Mistral-7B/NIAH was re-run on an H100 for this table;
+its R-KV/ReasonAlloc columns (marked $\dagger$) use non-default pruning
+hyperparameters (buffer/delta $=8$, not the default $128$) to avoid the
+degenerate no-pruning result this model's short NIAH answers otherwise
+produce, so those two columns are not directly comparable to the
+default-parameter rows above and are excluded from
+Table~\ref{tab:results}'s win-counts, consistent with the exclusion
+already noted in \S\ref{sec:results}.
 
 \begin{table}[h]
 \centering
@@ -531,10 +535,10 @@ R1-1.5B/CoT        & 8  & 0.395 & 0.542 & 0.543 & 0.032 & 0.399 & 0.401 & 2{,}63
                    & 32 & 0.066 & 0.040 & 0.074 & 0.012 & 0.063 & 0.058 & 8{,}014 \\
                    & 64 & 0.042 & 0.005 & 0.013 & 0.012 & 0.012 & 0.009 & 10{,}692 \\
 \midrule
-Mistral-7B/NIAH    & 8  & -- & -- & -- & -- & -- & -- & -- \\
-                   & 16 & -- & -- & -- & -- & -- & -- & -- \\
-                   & 32 & -- & -- & -- & -- & -- & -- & -- \\
-                   & 64 & -- & -- & -- & -- & -- & -- & -- \\
+Mistral-7B/NIAH    & 8  & 0.579 & 0.650 & 0.761 & 0.689 & 0.421$^\dagger$ & 0.422$^\dagger$ & 8{,}192 \\
+                   & 16 & 0.506 & 0.443 & 0.613 & 0.559 & 0.296$^\dagger$ & 0.303$^\dagger$ & 16{,}349 \\
+                   & 32 & 0.442 & 0.180 & 0.308 & 0.442 & 0.167$^\dagger$ & 0.170$^\dagger$ & 32{,}168 \\
+                   & 64 & 0.407 & 0.048 & 0.090 & 0.421 & 0.065$^\dagger$ & 0.047$^\dagger$ & 57{,}514 \\
 \bottomrule
 \end{tabular}
 \caption{Full residency sweep: miss rate per policy at each swept
@@ -543,9 +547,9 @@ that $B$. ``Reactive mem'' is the actual memory reactive realizes at
 that nominal budget, used for the matched-memory interpolation in
 \S\ref{sec:results}; frozen/SnapKV/R-KV/ReasonAlloc's own realized
 memory at each row is available in the underlying logs but omitted
-here for width. Mistral-7B/NIAH rows are pending re-extraction; its
-already-computed win-counts (4/4 vs.\ frozen, 4/4 vs.\ evict) are
-reported in \S\ref{sec:results}.}
+here for width. $^\dagger$Mistral-7B/NIAH's R-KV/ReasonAlloc values use
+a shorter pruning interval than every other row (see text above);
+excluded from Table~\ref{tab:results}'s win-counts.}
 \label{tab:appendix-sweep}
 \end{table}
 
