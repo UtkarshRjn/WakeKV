@@ -311,10 +311,10 @@ vs.\ SnapKV/R-KV/ReasonAlloc, matched memory & 4 model/regime$^\dagger$ & \textb
 \end{tabular}
 \renewcommand{\arraystretch}{1.0}
 \caption{Headline results: how often reactive's miss rate was $\leq$ the
-comparator's at every matched-memory/budget point, plus one example
-per row (full breakdown in Table~\ref{tab:appendix-sweep}; real-system
-result in Table~\ref{tab:m2b2}). $^\dagger$Mistral-7B/NIAH excluded:
-its R-KV/ReasonAlloc needed a non-default pruning interval.}
+comparator's, matched on memory/budget, plus one example per row
+(full breakdown in Table~\ref{tab:appendix-sweep}; real-system result
+in Table~\ref{tab:m2b2}). $^\dagger$Mistral-7B/NIAH excluded: its
+R-KV/ReasonAlloc needed a non-default pruning interval.}
 \label{tab:results}
 \end{table}
 
@@ -354,9 +354,8 @@ SnapKV~\cite{snapkv} (frozen prefill selection), uniform
 R-KV~\cite{rkv} (redundancy-aware pruning, importance-only here since
 raw keys aren't logged), and ReasonAlloc~\cite{reasonalloc} (online
 per-head reallocation, calibrated with an equal split rather than its
-offline Reasoning-Wave allocation)---each a declared simplification
-where logged data doesn't support the full method. The same nominal
-label is misleading here too: these three prune periodically at
+offline Reasoning-Wave allocation)---each a declared simplification.
+The same nominal label is misleading here too: these three prune at
 several times reactive's memory at the same $B$
 (Table~\ref{tab:appendix-sweep}'s ``Reactive mem'' column). Under the
 same matched-memory correction, reactive wins
@@ -389,15 +388,13 @@ Reactive & 16 & 266.6 & \wingreen{2.33$\times$} & 95.0 \\
 \bottomrule
 \end{tabular}
 \caption{Real-system throughput$\times$quality sweep (A30, Mistral-7B,
-LEval 8k$\to$1000, 24 prompts; LongBench, 4 tasks $\times$ 30 samples).
-$R{=}1$ is WakeKV's design point; $R{=}16$ is the Pareto knee (best
-throughput, quality $\geq 95\%$).}
+LEval 8k$\to$1000; LongBench, 4$\times$30 samples). $R{=}1$ is
+WakeKV's design point; $R{=}16$ is the Pareto knee (quality $\geq 95\%$).}
 \label{tab:m2b2}
 \end{table}
 
 \raggedbottom
 \enlargethispage{9\baselineskip}
-\vspace{-20pt}
 \section{Limitations}
 
 Our models are scout-scale (1.5B--8B), and regime coverage is uneven:
