@@ -518,41 +518,49 @@ already noted in \S\ref{sec:results}.
 \toprule
 Model/regime & $B$ & Frozen & Reactive & Evict & SnapKV & R-KV & ReasonAlloc & Reactive mem \\
 \midrule
-Qwen-3B/multiturn & 8  & 0.491 & 0.631 & 0.651 & 0.428 & 0.163 & 0.163 & 4{,}608 \\
-                   & 16 & 0.294 & 0.300 & 0.369 & 0.247 & 0.093 & 0.090 & 9{,}187 \\
-                   & 32 & 0.116 & 0.010 & 0.025 & 0.201 & 0.010 & 0.009 & 17{,}373 \\
-                   & 64 & 0.110 & 0.000 & 0.000 & 0.201 & 0.000 & 0.000 & 18{,}621 \\
+Qwen-3B/multiturn & 8  & 0.491 & \wingreen{0.631} & 0.651 & 0.428 & 0.163 & 0.163 & 4{,}608 \\
+                   & 16 & 0.294 & \wingreen{0.300} & 0.369 & 0.247 & 0.093 & 0.090 & 9{,}187 \\
+                   & 32 & 0.116 & \wingreen{0.010} & 0.025 & 0.201 & 0.010 & 0.009 & 17{,}373 \\
+                   & 64 & 0.110 & \wingreen{0.000} & 0.000 & 0.201 & 0.000 & 0.000 & 18{,}621 \\
 \midrule
-Qwen-3B/NIAH       & 8  & 0.403 & 0.655 & 0.760 & 0.499 & 0.250 & 0.250 & 4{,}608 \\
-                   & 16 & 0.276 & 0.409 & 0.617 & 0.429 & 0.179 & 0.177 & 9{,}209 \\
-                   & 32 & 0.197 & 0.187 & 0.398 & 0.374 & 0.128 & 0.126 & 18{,}337 \\
-                   & 64 & 0.155 & 0.076 & 0.215 & 0.368 & 0.080 & 0.074 & 35{,}638 \\
+Qwen-3B/NIAH       & 8  & 0.403 & \wingreen{0.655} & 0.760 & 0.499 & 0.250 & 0.250 & 4{,}608 \\
+                   & 16 & 0.276 & \wingreen{0.409} & 0.617 & 0.429 & 0.179 & 0.177 & 9{,}209 \\
+                   & 32 & 0.197 & \wingreen{0.187} & 0.398 & 0.374 & 0.128 & 0.126 & 18{,}337 \\
+                   & 64 & 0.155 & \wingreen{0.076} & 0.215 & 0.368 & 0.080 & 0.074 & 35{,}638 \\
 \midrule
 R1-8B/CoT          & 8  & 0.455 & 0.632 & 0.624 & 0.021 & 0.508 & 0.514 & 8{,}088 \\
-                   & 16 & 0.257 & 0.338 & 0.373 & 0.007 & 0.314 & 0.317 & 15{,}298 \\
-                   & 32 & 0.102 & 0.090 & 0.145 & 0.005 & 0.132 & 0.129 & 26{,}362 \\
-                   & 64 & 0.045 & 0.014 & 0.035 & 0.005 & 0.031 & 0.027 & 39{,}178 \\
+                   & 16 & 0.257 & \wingreen{0.338} & 0.373 & 0.007 & 0.314 & 0.317 & 15{,}298 \\
+                   & 32 & 0.102 & \wingreen{0.090} & 0.145 & 0.005 & 0.132 & 0.129 & 26{,}362 \\
+                   & 64 & 0.045 & \wingreen{0.014} & 0.035 & 0.005 & 0.031 & 0.027 & 39{,}178 \\
 \midrule
-R1-1.5B/CoT        & 8  & 0.395 & 0.542 & 0.543 & 0.032 & 0.399 & 0.401 & 2{,}637 \\
-                   & 16 & 0.191 & 0.221 & 0.263 & 0.014 & 0.201 & 0.199 & 4{,}899 \\
-                   & 32 & 0.066 & 0.040 & 0.074 & 0.012 & 0.063 & 0.058 & 8{,}014 \\
-                   & 64 & 0.042 & 0.005 & 0.013 & 0.012 & 0.012 & 0.009 & 10{,}692 \\
+R1-1.5B/CoT        & 8  & 0.395 & \wingreen{0.542} & 0.543 & 0.032 & 0.399 & 0.401 & 2{,}637 \\
+                   & 16 & 0.191 & \wingreen{0.221} & 0.263 & 0.014 & 0.201 & 0.199 & 4{,}899 \\
+                   & 32 & 0.066 & \wingreen{0.040} & 0.074 & 0.012 & 0.063 & 0.058 & 8{,}014 \\
+                   & 64 & 0.042 & \wingreen{0.005} & 0.013 & 0.012 & 0.012 & 0.009 & 10{,}692 \\
 \midrule
-Mistral-7B/NIAH    & 8  & 0.579 & 0.650 & 0.761 & 0.689 & 0.421$^\dagger$ & 0.422$^\dagger$ & 8{,}192 \\
-                   & 16 & 0.506 & 0.443 & 0.613 & 0.559 & 0.296$^\dagger$ & 0.303$^\dagger$ & 16{,}349 \\
-                   & 32 & 0.442 & 0.180 & 0.308 & 0.442 & 0.167$^\dagger$ & 0.170$^\dagger$ & 32{,}168 \\
-                   & 64 & 0.407 & 0.048 & 0.090 & 0.421 & 0.065$^\dagger$ & 0.047$^\dagger$ & 57{,}514 \\
+Mistral-7B/NIAH    & 8  & 0.579 & \wingreen{0.650} & 0.761 & 0.689 & 0.421$^\dagger$ & 0.422$^\dagger$ & 8{,}192 \\
+                   & 16 & 0.506 & \wingreen{0.443} & 0.613 & 0.559 & 0.296$^\dagger$ & 0.303$^\dagger$ & 16{,}349 \\
+                   & 32 & 0.442 & \wingreen{0.180} & 0.308 & 0.442 & 0.167$^\dagger$ & 0.170$^\dagger$ & 32{,}168 \\
+                   & 64 & 0.407 & \wingreen{0.048} & 0.090 & 0.421 & 0.065$^\dagger$ & 0.047$^\dagger$ & 57{,}514 \\
 \bottomrule
 \end{tabular}
 \caption{Full residency sweep: miss rate per policy at each swept
 budget $B$ (page units), plus reactive's mean resident page count at
-that $B$. ``Reactive mem'' is the actual memory reactive realizes at
-that nominal budget, used for the matched-memory interpolation in
-\S\ref{sec:results}; frozen/SnapKV/R-KV/ReasonAlloc's own realized
-memory at each row is available in the underlying logs but omitted
-here for width. $^\dagger$Mistral-7B/NIAH's R-KV/ReasonAlloc values use
-a shorter pruning interval than every other row (see text above);
-excluded from Table~\ref{tab:results}'s win-counts.}
+that $B$. \wingreen{Green} Reactive values beat Evict at that row (the
+only column here sharing reactive's exact budget and LRU schedule, so
+the only fair same-row comparison; frozen/SnapKV/R-KV/ReasonAlloc
+realize different memory at the same nominal $B$, which is why they
+aren't marked here---see \S\ref{sec:results}'s matched-memory
+comparison instead): 19 of 20 rows, matching
+Table~\ref{tab:results}'s count; the one unmarked case (8B/CoT,
+$B{=}8$) is discussed in \S\ref{sec:results}. ``Reactive mem'' is the
+actual memory reactive realizes at that nominal budget, used for the
+matched-memory interpolation in \S\ref{sec:results};
+frozen/SnapKV/R-KV/ReasonAlloc's own realized memory at each row is
+available in the underlying logs but omitted here for width.
+$^\dagger$Mistral-7B/NIAH's R-KV/ReasonAlloc values use a shorter
+pruning interval than every other row (see text above); excluded from
+Table~\ref{tab:results}'s win-counts.}
 \label{tab:appendix-sweep}
 \end{table}
 
