@@ -7,6 +7,7 @@
 \usepackage{hyperref}
 \usepackage{url}
 \usepackage{booktabs}
+\usepackage{array}
 \usepackage{amsmath,amssymb}
 \usepackage{nicefrac}
 \usepackage{microtype}
@@ -129,9 +130,9 @@ anticipated enough to prefetch (full setup in \S\ref{sec:setup})?
 
 \subsection{Head Churn}
 
-Let $A_t$ denote the set of heads
-(or top-$k$ pages) a given head attends to at decode step $t$. We track
-step-to-step stability with the adjacent-step Jaccard index:
+Let $A_t$ denote the set of heads (or top-$k$ pages) attended to at
+decode step $t$; we track step-to-step stability with the
+adjacent-step Jaccard index:
 \begin{equation}
 J(A_t, A_{t+1}) \;=\; \frac{|A_t \cap A_{t+1}|}{|A_t \cup A_{t+1}|}.
 \label{eq:jaccard}
@@ -141,10 +142,9 @@ $J=0$ means complete turnover. Measured adjacent-step Jaccard is $0.53$
 (continuous score, NIAH), within \cite{retrievalheadsdynamic}'s reported
 $0.28$--$0.51$ range (Table~\ref{tab:churn}).
 
-``Unstable'' heads (Table~\ref{tab:churn}) are identified with
-FlexiCache's temporal-stability statistic, Random-Corrected Overlap,
-which discounts raw top-$K$ overlap by its chance level under a
-candidate pool of size $N$:
+``Unstable'' heads (Table~\ref{tab:churn}) are identified via
+FlexiCache's Random-Corrected Overlap statistic, which discounts raw
+top-$K$ overlap by its chance level under a pool of size $N$:
 \begin{equation}
 \mathrm{RCO}(A,B) \;=\; \max\!\left(0,\; \frac{\nicefrac{|A\cap B|}{K} - \nicefrac{K}{N}}{1 - \nicefrac{K}{N}}\right), \qquad K = \min(|A|,|B|).
 \label{eq:rco}
@@ -209,15 +209,15 @@ it.
 \label{sec:method}
 
 WakeKV replaces per-head classification with a single runtime rule
-(\S\ref{sec:motivation}). Each head keeps a GPU-resident set, LRU-ordered and capped at a
-per-head budget $B$; a page evicted under budget pressure is demoted to
-a CPU reservoir rather than destroyed, and is fetched back the moment
-it is wanted again (Figure~\ref{fig:mechanism}). A wrong or stale
-classification thus costs one recoverable stall, not a permanent
-accuracy loss---the combination no prior static or destructive method
-offers (\S\ref{sec:intro}); \S\ref{sec:results} compares it against a
-frozen (FlexiCache-style) policy and an \emph{evict} foil sharing its
-exact LRU schedule but destroying instead of reserving.
+(\S\ref{sec:motivation}): each head keeps a GPU-resident set,
+LRU-ordered and capped at a per-head budget $B$; an evicted page is
+demoted to a CPU reservoir rather than destroyed, and is fetched back
+the moment it is wanted again (Figure~\ref{fig:mechanism}). A wrong or
+stale classification thus costs one recoverable stall, not a permanent
+accuracy loss---the combination no prior method offers
+(\S\ref{sec:intro}); \S\ref{sec:results} compares it against a frozen
+(FlexiCache-style) policy and an \emph{evict} foil sharing its exact
+LRU schedule but destroying instead of reserving.
 
 \begin{figure}[h]
 \centering
@@ -256,9 +256,9 @@ needle score and a binary copy-paste score following
 \cite{retrievalheadsdynamic}'s Eq.~1--2. The 1.5B and 3B models were
 measured on an RTX~2080~Ti (11GB); the 8B model and the real-system
 follow-up ran on an A30 (24GB). This logged attention backs
-\S\ref{sec:motivation} and \S\ref{sec:results}'s simulation, which adds
-a fifth combo (Mistral-7B/NIAH, H100); the real-hardware deployment
-(\S\ref{sec:results}) runs live on a separate A30.
+\S\ref{sec:motivation} and \S\ref{sec:results} (which adds a fifth
+combo, Mistral-7B/NIAH on H100); the real-hardware deployment runs live
+on a separate A30.
 
 \section{Results}
 \label{sec:results}
@@ -277,7 +277,8 @@ details follow.
 \begin{table}[h]
 \centering
 \footnotesize
-\begin{tabular}{lllr}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{>{\raggedright\arraybackslash}p{4.6cm}>{\raggedright\arraybackslash}p{2cm}c>{\raggedright\arraybackslash}p{4.6cm}}
 \toprule
 Comparison (matched memory/budget) & Combos & Wins & Example (miss rate) \\
 \midrule
@@ -286,6 +287,7 @@ vs.\ Evict, matched budget & 5 model/regime & \textbf{19/20} & 1 loss: 8B/CoT @B
 vs.\ SnapKV/R-KV/ReasonAlloc, matched memory & 4 model/regime$^\dagger$ & \textbf{32/32} & 8B/CoT vs.\ R-KV @28k pages: 0.132$\to$0.078 \\
 \bottomrule
 \end{tabular}
+\renewcommand{\arraystretch}{1.0}
 \caption{Headline results: how often reactive's miss rate was $\leq$ the
 comparator's at every real matched-memory/budget point, plus one
 representative number per row. Full per-combo breakdown in
@@ -300,8 +302,7 @@ R-KV/ReasonAlloc needed a non-default pruning interval
 
 We simulate, at page granularity over
 the same logged attention: \emph{full} (ceiling), \emph{frozen}
-(FlexiCache-style, offline stable/unstable split; thresholds and cadence
-are each baseline's own published default, not tuned by us), \emph{reactive}
+(FlexiCache-style split, its published defaults), \emph{reactive}
 (WakeKV: LRU-capped per-head budget, CPU-reservoir fetch-on-demand,
 nothing destroyed), and \emph{evict} (identical LRU schedule to
 reactive, same budget, but destructive demotion, isolating
@@ -322,10 +323,9 @@ recovers a page evict destroyed, not a flaw in the comparison.
 \centering
 \includegraphics[width=0.75\textwidth]{figures/pareto_curves.png}
 \caption{Memory-vs-miss-rate Pareto fronts, reactive vs.\ frozen vs.\
-evict, across all three regimes (NIAH, CoT, multi-turn). Reactive's
-curve sits at or below frozen's at every one of the 17 matched memory
-points and below evict's at 19 of 20 matched budgets
-(Table~\ref{tab:results}), i.e.\ lower miss rate for the same resident
+evict, across NIAH, CoT, and multi-turn. Reactive sits at or below
+frozen's at all 17 matched memory points and below evict's at 19 of 20
+matched budgets (Table~\ref{tab:results}): lower miss rate, same
 footprint.}
 \label{fig:pareto}
 \end{figure}
@@ -336,22 +336,19 @@ We further implement three faithful, cited reimplementations:
 SnapKV~\cite{snapkv} (frozen prefill selection), uniform
 R-KV~\cite{rkv} (periodic pruning), and ReasonAlloc~\cite{reasonalloc}
 (online reallocation), each with a declared simplification (no
-redundancy term, raw keys unlogged). Comparing at the same nominal
-budget label is misleading here, since these three prune periodically
-and can silently use several times the memory; under the same
-matched-memory correction above, reactive wins \textbf{32/32} valid
-comparisons across the four eligible combos
-(Table~\ref{tab:results}$^\dagger$).
+redundancy term, raw keys unlogged). The same nominal label is
+misleading since these three prune at several times the memory; under
+the same matched-memory correction, reactive wins \textbf{32/32} valid
+comparisons across the four eligible combos (Table~\ref{tab:results}$^\dagger$).
 
 \subsection{Real-Hardware Deployment}
 
 A FlexiCache/vLLM shim (zero ``stable'' heads, rerank every step) turns
-stock FlexiCache into WakeKV reactive. On Mistral-7B (LEval $8$k
-$\to$ $1000$, A30), reactive beats stock throughput at every rerank
-interval (Table~\ref{tab:m2b2}) while holding $95$--$99\%$ of LongBench
-quality with no monotonic erosion. Part of the win is less attention
-work per step, not purely memory: holding rerank frequency fixed at
-stock's cadence, 0 dense heads alone yields $2.33\times$ throughput for
+stock FlexiCache into WakeKV reactive. On Mistral-7B (LEval $8$k$\to$$1000$,
+A30), reactive beats stock throughput at every rerank interval
+(Table~\ref{tab:m2b2}) while holding $95$--$99\%$ of LongBench quality.
+Part of the win is less attention work, not purely memory: at stock's
+rerank cadence, 0 dense heads alone yields $2.33\times$ throughput for
 a 5-point quality cost.
 
 \begin{table}[h]
@@ -376,18 +373,18 @@ $R{=}1$ is the WakeKV design point; $R{=}16$ is the Pareto knee here
 \label{tab:m2b2}
 \end{table}
 
-\enlargethispage{2.9\baselineskip}
+\raggedbottom
+\enlargethispage{9\baselineskip}
 \section{Limitations}
 
-Our models are scout-scale (1.5B--8B) with uneven regime coverage (five
-CoT runs, one multi-turn run); the thresholded 2602.11162 binary score
-reads Jaccard higher than the continuous score (both in
-Table~\ref{tab:churn}). The simulator counts \emph{misses}, not stall
-\emph{time}, against FlexiCache-\emph{style} policies, not their exact
-code. The real-system result is narrow (single model/regime, one A30)
-and preliminary; a reversible-vs-evict/baseline comparison there needs
-patching FlexiCache's internals (designed, not built). Simulator-level
-results stand on their own.
+Our models are scout-scale (1.5B--8B) with uneven regime coverage
+(five CoT runs, one multi-turn run); the thresholded 2602.11162 binary
+score reads Jaccard higher than the continuous score
+(Table~\ref{tab:churn}). The simulator counts \emph{misses}, not stall
+\emph{time}, against FlexiCache-\emph{style} policies. The real-system
+result is narrow (single model/regime, one A30); a reversible-vs-evict
+comparison there needs patching FlexiCache's internals (designed, not
+built). Simulator-level results stand on their own.
 
 \clearpage
 \begin{thebibliography}{99}
