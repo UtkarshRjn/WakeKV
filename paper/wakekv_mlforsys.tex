@@ -23,8 +23,6 @@
 \setlength{\intextsep}{4pt plus 1pt minus 2pt}
 \setlength{\floatsep}{4pt plus 1pt minus 2pt}
 
-\newcommand{\NEEDPROSE}[1]{\textcolor{red}{[TODO: #1]}}
-\newcommand{\NEEDFIG}[1]{\textcolor{red}{[FIG PENDING: #1]}}
 \newcommand{\wingreen}[1]{\textcolor{green!50!black}{#1}}
 
 \title{WakeKV: Reactive, Reversible KV Residency\\
@@ -314,7 +312,7 @@ reach different memory at the same nominal $B$, we interpolate
 reactive's curve piecewise-linearly onto each of frozen's $17$
 actually-measured memory values (pooled across the five combos; $3$ of
 $20$ points are dropped where reactive's sweep never reached that much
-memory). At each of those $17$ matched memory levels, reactive's
+memory). At each of those $17$ matched-memory levels, reactive's
 interpolated miss rate is $\leq$ frozen's: \textbf{17/17}. At matched
 budget (both share the identical LRU cap, no interpolation needed),
 reactive beats evict in \textbf{19/20} settings; the one exception
@@ -326,7 +324,7 @@ recovers a page evict destroyed, not a flaw in the comparison.
 \includegraphics[width=0.64\textwidth]{figures/pareto_curves.png}
 \caption{Memory-vs-miss-rate Pareto fronts, reactive vs.\ frozen vs.\
 evict, across NIAH, CoT, and multi-turn. Reactive sits at or below
-frozen's at all 17 matched memory points and below evict's at 19 of 20
+frozen's at all 17 matched-memory points and below evict's at 19 of 20
 matched budgets (Table~\ref{tab:results}): lower miss rate, same
 footprint.}
 \label{fig:pareto}
