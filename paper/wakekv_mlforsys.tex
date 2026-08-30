@@ -398,16 +398,12 @@ WakeKV's design point; $R{=}16$ is the Pareto knee (quality $\geq 95\%$).}
 \section{Limitations}
 
 Our models are scout-scale (1.5B--8B), and regime coverage is uneven:
-five CoT runs against a single multi-turn run. The binary drift score
-from \cite{retrievalheadsdynamic} is thresholded, so it reads Jaccard
-higher than the continuous score (both in Table~\ref{tab:churn}). The
-simulator also simplifies: it counts \emph{misses}, not stall
-\emph{time}, against FlexiCache-\emph{style} policies, not exact code.
-The real-system result is narrower still ---
-one model/regime --- and preliminary; a reversible-vs-evict
-comparison there needs patching FlexiCache's internals (designed, not
-built). Even so, the
-simulator-level results stand on their own.
+five CoT runs against a single multi-turn run. The simulator also
+simplifies: it counts \emph{misses}, not stall \emph{time}, against
+FlexiCache-\emph{style} policies, not exact code. The real-system
+result is narrower still --- one model/regime --- and preliminary;
+extending it to the reversible-vs-evict/baseline comparison is future
+work. Even so, the simulator-level results stand on their own.
 
 \clearpage
 \begin{thebibliography}{99}
