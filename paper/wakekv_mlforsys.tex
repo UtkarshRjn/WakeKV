@@ -257,8 +257,8 @@ needle score and a binary copy-paste score following
 measured on an RTX~2080~Ti (11GB); the 8B model and the real-system
 follow-up ran on an A30 (24GB). This logged attention backs
 \S\ref{sec:motivation} and \S\ref{sec:results} (which adds a fifth
-combo, Mistral-7B/NIAH on H100); the real-hardware deployment runs live
-on a separate A30.
+combo, Mistral-7B/NIAH); the real-hardware deployment runs live on a
+separate A30.
 
 \section{Results}
 \label{sec:results}
@@ -512,10 +512,9 @@ label, so a row's raw numbers are \emph{not} a fair comparison across
 those columns --- only Reactive vs.\ Evict shares the same realized
 memory at each row (identical LRU cap); Table~\ref{tab:results}'s
 matched-memory comparison is the fair read for the rest, and is what
-the paper's win-counts are based on. Mistral-7B/NIAH was re-run on an
-H100 for this table;
-its R-KV/ReasonAlloc columns (marked $\dagger$) use non-default pruning
-hyperparameters (buffer/delta $=8$, not the default $128$) to avoid the
+the paper's win-counts are based on. Mistral-7B/NIAH's R-KV/ReasonAlloc
+columns (marked $\dagger$) use non-default pruning hyperparameters
+(buffer/delta $=8$, not the default $128$) to avoid the
 degenerate no-pruning result this model's short NIAH answers otherwise
 produce, so those two columns are not directly comparable to the
 default-parameter rows above and are excluded from
