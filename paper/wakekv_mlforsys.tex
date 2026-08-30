@@ -285,15 +285,15 @@ separate A30.
 \section{Results}
 \label{sec:results}
 
-Having established that heads shift substantially and that cheap
+Having established that heads shift substantially and cheap
 prediction cannot reliably anticipate wake events
 (\S\ref{sec:motivation}), we ask whether reacting to demand pays off:
-we simulate WakeKV against a frozen (FlexiCache-style) classifier and a
+we simulate WakeKV against a frozen classifier and a
 destructive-eviction foil sharing its exact LRU schedule, then extend
-to three cited baselines and a real-hardware deployment. Because two
-policies at the same nominal budget can realize very different memory,
-every comparison below holds memory or budget fixed exactly rather than
-a shared label. Table~\ref{tab:results} summarizes the headline result;
+to three baselines and a real-hardware deployment. Because two
+policies at the same nominal budget can realize different memory,
+every comparison below holds memory or budget fixed rather than a
+shared label. Table~\ref{tab:results} summarizes the headline result;
 details follow.
 
 \begin{table}[h]
@@ -349,14 +349,20 @@ matched-memory points and below evict's at 19 of 20 matched budgets
 \label{fig:pareto}
 \end{figure}
 
-\subsection{Baseline Comparison}
-
-We further implement three faithful reimplementations:
-SnapKV~\cite{snapkv}, uniform R-KV~\cite{rkv}, and
-ReasonAlloc~\cite{reasonalloc}, each with a declared simplification. The same
-nominal label is misleading since these three prune at several times
-the memory; under the same correction, reactive wins \textbf{32/32}
-comparisons (Table~\ref{tab:results}$^\dagger$).
+We further implement three faithful, cited reimplementations:
+SnapKV~\cite{snapkv} (frozen prefill selection), uniform
+R-KV~\cite{rkv} (redundancy-aware pruning, importance-only here since
+raw keys aren't logged), and ReasonAlloc~\cite{reasonalloc} (online
+per-head reallocation, calibrated with an equal split rather than its
+offline Reasoning-Wave allocation)---each a declared simplification
+where logged data doesn't support the full method. The same nominal
+label is misleading here too: these three prune periodically at
+several times reactive's memory at the same $B$
+(Table~\ref{tab:appendix-sweep}'s ``Reactive mem'' column). Under the
+same matched-memory correction, reactive wins
+\textbf{32/32} comparisons across the four eligible combos (e.g.\
+8B/CoT at $\sim$28k pages: R-KV $0.132$ vs.\ reactive $0.078$;
+Table~\ref{tab:results}$^\dagger$).
 
 \subsection{Real-Hardware Deployment}
 
@@ -384,25 +390,26 @@ Reactive & 16 & 266.6 & \wingreen{2.33$\times$} & 95.0 \\
 \end{tabular}
 \caption{Real-system throughput$\times$quality sweep (A30, Mistral-7B,
 LEval 8k$\to$1000, 24 prompts; LongBench, 4 tasks $\times$ 30 samples).
-$R{=}1$ is WakeKV's design point; $R{=}16$ is the Pareto knee (largest
-throughput, quality still $\geq 95\%$).}
+$R{=}1$ is WakeKV's design point; $R{=}16$ is the Pareto knee (best
+throughput, quality $\geq 95\%$).}
 \label{tab:m2b2}
 \end{table}
 
 \raggedbottom
 \enlargethispage{9\baselineskip}
+\vspace{-20pt}
 \section{Limitations}
 
 Our models are scout-scale (1.5B--8B), and regime coverage is uneven:
 five CoT runs against a single multi-turn run. The binary drift score
 from \cite{retrievalheadsdynamic} is thresholded, so it reads Jaccard
 higher than the continuous score (both in Table~\ref{tab:churn}). The
-simulator simplifies too: it counts \emph{misses}, not stall \emph{time}, and
-compares against FlexiCache-\emph{style} policies rather than
-FlexiCache's actual code. The real-system result is narrower still ---
-one model/regime, one A30 --- and preliminary; a
-reversible-vs-evict/baseline comparison there needs patching
-FlexiCache's internals (designed, not built). Even so, the
+simulator also simplifies: it counts \emph{misses}, not stall
+\emph{time}, against FlexiCache-\emph{style} policies, not exact code.
+The real-system result is narrower still ---
+one model/regime --- and preliminary; a reversible-vs-evict
+comparison there needs patching FlexiCache's internals (designed, not
+built). Even so, the
 simulator-level results stand on their own.
 
 \clearpage
