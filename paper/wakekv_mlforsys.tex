@@ -112,8 +112,9 @@ wake-ups are real but not tightly detectable enough for a coarse
 trigger.
 \item \textbf{Residency simulator:} At page granularity, reactive LRU +
 fetch-on-demand dominates frozen classification, and \emph{reversible}
-offload specifically (not just dynamism) beats destructive eviction and
-three cited baselines, across five real model/regime combinations.
+offload specifically (not just dynamism) beats destructive eviction
+across five real model/regime combinations, and three cited baselines
+across four.
 \item \textbf{Real-system confirmation:} On A30/Mistral-7B via a
 FlexiCache/vLLM shim, WakeKV reactive beats stock throughput at every
 rerank interval ($1.34$--$2.33\times$) while holding $95$--$99\%$ of
@@ -307,7 +308,8 @@ the same logged attention: \emph{full} (ceiling), \emph{frozen}
 nothing destroyed), and \emph{evict} (identical LRU schedule to
 reactive, same budget, but destructive demotion, isolating
 reversibility as a variable). Sweeping the per-head budget $B$ traces
-each policy's own (memory, miss-rate) curve; since frozen and reactive
+each policy's own (memory, miss-rate) curve (Figure~\ref{fig:pareto});
+since frozen and reactive
 reach different memory at the same nominal $B$, we interpolate
 reactive's curve piecewise-linearly onto each of frozen's $17$
 actually-measured memory values (pooled across the five combos; $3$ of
@@ -504,7 +506,7 @@ built. Even so, the simulator-level results stand on their own.
 
 Table~\ref{tab:appendix-sweep} gives the raw miss rate for every policy
 at every swept \emph{nominal} budget $B \in \{8,16,32,64\}$, for all
-five model/regime combos (all on real logged data; this is the table
+five model/regime combos (all on real logged data; this is the source
 Table~\ref{tab:results}'s win-counts and Table~\ref{tab:churn} are
 computed from). \textbf{Caution:} Frozen/SnapKV/R-KV/ReasonAlloc realize
 very different actual memory than reactive at the same nominal $B$
