@@ -320,7 +320,7 @@ recovers a page evict destroyed, not a flaw in the comparison.
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.88\textwidth]{figures/pareto_curves.png}
+\includegraphics[width=0.66\textwidth]{figures/pareto_curves.png}
 \caption{Memory-vs-miss-rate Pareto fronts across NIAH, CoT, and
 multi-turn. Reactive sits at or below frozen's at all 17
 matched-memory points and below evict's at 19 of 20 matched budgets
@@ -328,36 +328,33 @@ matched-memory points and below evict's at 19 of 20 matched budgets
 \label{fig:pareto}
 \end{figure}
 
+\subsection{Baseline Comparison}
+
 We further implement three faithful, cited reimplementations:
 SnapKV~\cite{snapkv} (prefill-only top-token selection, frozen through
 decode), uniform R-KV~\cite{rkv} (periodic redundancy-aware pruning,
 reduced here to importance-only since raw keys aren't logged), and
-ReasonAlloc~\cite{reasonalloc} (online per-head reallocation with a
-starvation floor, calibrated with an equal split rather than its
-offline Reasoning-Wave allocation)---each a declared simplification
-where the logged data doesn't support the full method. Comparing at
-the same nominal budget label is misleading here too, exactly as with
-frozen above: these three prune periodically and can silently use
-several times reactive's memory at the same $B$
-(Table~\ref{tab:appendix-sweep}'s ``Reactive mem'' column makes the
-gap visible). Under the same matched-memory correction, reactive wins
+ReasonAlloc~\cite{reasonalloc} (online per-head reallocation,
+calibrated with an equal split rather than its offline Reasoning-Wave
+allocation)---each a declared simplification. Comparing at the same
+nominal budget label is misleading here too: these three prune
+periodically and can silently use several times reactive's memory at
+the same $B$ (Table~\ref{tab:appendix-sweep}'s ``Reactive mem''
+column). Under the same matched-memory correction, reactive wins
 \textbf{32/32} comparisons across the four eligible combos---e.g.\ on
 8B/CoT at $\sim$28k pages of realized memory, R-KV's miss rate is
 $0.132$ against reactive's $0.078$ (Table~\ref{tab:results}$^\dagger$).
 
 \subsection{Real-Hardware Deployment}
 
-A FlexiCache/vLLM shim turns stock FlexiCache into WakeKV reactive with
-two config overrides: zero heads classified ``stable,'' and reranking
-every step instead of FlexiCache's native cadence. On Mistral-7B
-(LEval $8$k$\to$$1000$, A30), reactive beats stock throughput at every
-rerank interval we swept (Table~\ref{tab:m2b2}) while holding
-$95$--$99\%$ of LongBench quality, with no monotonic erosion as the
-interval widens. Part of the win is less attention work per step, not
-purely memory management: holding rerank frequency fixed at stock's
-native cadence, zero dense heads alone yields $2.33\times$ throughput
-for a 5-point quality cost, which isolates how much of the gain comes
-from compute rather than caching.
+A FlexiCache/vLLM shim turns stock FlexiCache into WakeKV reactive:
+zero heads classified ``stable,'' reranking every step instead of its
+native cadence. On Mistral-7B (LEval $8$k$\to$$1000$, A30), reactive
+beats stock throughput at every rerank interval (Table~\ref{tab:m2b2})
+while holding $95$--$99\%$ of LongBench quality, with no monotonic
+erosion. Part of the win is less attention work, not purely memory: at
+stock's cadence, zero dense heads alone yields $2.33\times$ throughput
+for a 5-point quality cost.
 
 \begin{table}[h]
 \centering
@@ -380,21 +377,29 @@ WakeKV's design point; $R{=}16$ is the Pareto knee (quality $\geq 95\%$).}
 \label{tab:m2b2}
 \end{table}
 
-\enlargethispage{4\baselineskip}
-\section{Limitations}
+\raggedbottom
+\enlargethispage{3\baselineskip}
+\section{Conclusion and Future Work}
 
-Our models are scout-scale (1.5B--8B), and regime coverage is uneven:
-five CoT runs against a single multi-turn run, so the multi-turn
-result in particular should be read as suggestive rather than
-conclusive. The simulator itself is also a simplification: it counts
-\emph{misses}, not stall \emph{time}, and it compares against
-FlexiCache-\emph{style} policies rather than FlexiCache's exact code,
-since it is our own reimplementation that the logged attention lets us
-drive. The real-system result is narrower still --- a single model and
-regime, one A30 --- and preliminary; extending the same
-reversible-vs-evict comparison to real hardware is future work. Even
-so, the simulator-level results, across five real model/regime
-combinations, stand on their own.
+WakeKV replaces per-head classification with a single reactive rule:
+heads shift too much for a one-time decision but not predictably
+enough to prefetch, so demoted state is reserved, not destroyed. It
+beats frozen classification, destructive eviction, and three cited
+baselines at matched memory or budget across five real model/regime
+combinations (Table~\ref{tab:results}), and a FlexiCache/vLLM shim on
+Mistral-7B confirms the direction on real hardware.
+
+Real limits remain: our models are scout-scale (1.5B--8B) with
+uneven regime coverage (five CoT runs, one multi-turn run); the
+simulator counts \emph{misses}, not stall \emph{time}, against
+FlexiCache-\emph{style} policies rather than exact code; and the
+real-system result is narrow (one model/regime, one A30) and
+preliminary. Extending the deployment to a reversible-vs-evict
+comparison, replayed on stall \emph{time} instead of miss counts, is
+the natural next step. Still, even with that open thread, the
+simulator-level
+results stand on
+their own.
 
 \clearpage
 \begin{thebibliography}{99}
