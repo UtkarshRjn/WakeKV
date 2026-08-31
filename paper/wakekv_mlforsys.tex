@@ -40,8 +40,9 @@ Most KV-cache compression methods classify attention heads once, either
 offline or during prefill, and keep this classification fixed
 throughout generation. Across three models (1.5B--8B) and three
 regimes (needle retrieval, long chain-of-thought, and multi-turn
-recall), we find that most heads change their reading behavior at
-least once during generation. We introduce \emph{WakeKV}, a reactive
+recall)---four model-regime combinations in total---we find that most
+heads change their reading behavior at least once during generation.
+We introduce \emph{WakeKV}, a reactive
 residency policy that moves cooling heads to a recoverable CPU
 reservoir rather than freezing or permanently evicting their state. At
 matched memory or budget, WakeKV consistently improves miss rate over
@@ -174,16 +175,12 @@ it.
 \label{sec:method}
 
 WakeKV replaces per-head classification with a single runtime rule
-(\S\ref{sec:motivation}): each head keeps a GPU-resident set,
+(\S\ref{sec:method}): each head keeps a GPU-resident set,
 LRU-ordered and capped at a per-head budget $B$; an evicted page is
 demoted to a CPU reservoir rather than destroyed, and is fetched back
 the moment it is wanted again (Figure~\ref{fig:mechanism}b). A wrong or
 stale classification thus costs one recoverable stall, not a permanent
-accuracy loss; \S\ref{sec:intro} surveys why prior methods offer only
-one property or the other, not both. \S\ref{sec:results} compares it
-against a frozen
-(FlexiCache-style) policy and an \emph{evict} foil sharing its exact
-LRU schedule but destroying instead of reserving.
+accuracy loss.
 
 Concretely, each head maintains a GPU-resident set ordered by
 recency, a CPU reservoir holding every demoted page's full,
