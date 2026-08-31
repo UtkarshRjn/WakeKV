@@ -129,11 +129,12 @@ def cmd_pareto(args: argparse.Namespace) -> None:
             if not pts:
                 continue
             mem, miss = zip(*pts)
-            ax.plot(mem, miss, ls, marker=marker, label=policy)
-        ax.set_xlabel("mean resident pages")
-        ax.set_ylabel("miss rate")
-        ax.set_title(task_dir.name)
-        ax.legend(fontsize=8)
+            ax.plot(mem, miss, ls, marker=marker, label=policy, linewidth=2.2, markersize=7)
+        ax.set_xlabel("mean resident pages", fontsize=13)
+        ax.set_ylabel("miss rate", fontsize=13)
+        ax.set_title(task_dir.name, fontsize=14)
+        ax.tick_params(axis="both", labelsize=11)
+        ax.legend(fontsize=11)
     fig.tight_layout()
 
     out = Path(args.out)

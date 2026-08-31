@@ -23,8 +23,6 @@
 \setlength{\intextsep}{4pt plus 1pt minus 2pt}
 \setlength{\floatsep}{4pt plus 1pt minus 2pt}
 
-\newcommand{\NEEDPROSE}[1]{\textcolor{red}{[TODO: #1]}}
-\newcommand{\NEEDFIG}[1]{\textcolor{red}{[FIG PENDING: #1]}}
 \newcommand{\wingreen}[1]{\textcolor{green!50!black}{#1}}
 
 \title{WakeKV: Reactive, Reversible KV Residency\\
@@ -88,7 +86,7 @@ Offload systems (ArkVale~\cite{arkvale}, ShadowKV~\cite{shadowkv},
 InfiniGen~\cite{infinigen}, HeadInfer~\cite{headinfer}, FlexiCache,
 HeteroCache) keep demoted KV recoverable but never revisit head
 priority at runtime. No prior system is both \emph{dynamic} and
-\emph{reversible} at once.
+\emph{reversible} at once (Figure~\ref{fig:mechanism}a).
 
 Recent measurement work on retrieval heads \cite{retrievalheadsdynamic}
 casts doubt on this shared premise: attention-head importance is
@@ -112,8 +110,9 @@ wake-ups are real but not tightly detectable enough for a coarse
 trigger.
 \item \textbf{Residency simulator:} At page granularity, reactive LRU +
 fetch-on-demand dominates frozen classification, and \emph{reversible}
-offload specifically (not just dynamism) beats destructive eviction and
-three cited baselines, across five real model/regime combinations.
+offload specifically (not just dynamism) beats destructive eviction
+across five real model/regime combinations, and three cited baselines
+across four.
 \item \textbf{Real-system confirmation:} On A30/Mistral-7B via a
 FlexiCache/vLLM shim, WakeKV reactive beats stock throughput at every
 rerank interval ($1.34$--$2.33\times$) while holding $95$--$99\%$ of
@@ -212,7 +211,7 @@ WakeKV replaces per-head classification with a single runtime rule
 (\S\ref{sec:motivation}): each head keeps a GPU-resident set,
 LRU-ordered and capped at a per-head budget $B$; an evicted page is
 demoted to a CPU reservoir rather than destroyed, and is fetched back
-the moment it is wanted again (Figure~\ref{fig:mechanism}). A wrong or
+the moment it is wanted again (Figure~\ref{fig:mechanism}b). A wrong or
 stale classification thus costs one recoverable stall, not a permanent
 accuracy loss---the combination no prior method offers
 (\S\ref{sec:intro}); \S\ref{sec:results} compares it against a frozen
@@ -221,7 +220,27 @@ LRU schedule but destroying instead of reserving.
 
 \begin{figure}[h]
 \centering
-\scalebox{0.62}{
+\begin{minipage}[t]{0.46\textwidth}
+\centering
+\scalebox{0.85}{
+\begin{tikzpicture}[
+  cell/.style={draw, rounded corners, minimum width=2.7cm, minimum height=1.5cm, align=left, font=\tiny, inner sep=4pt, anchor=north west},
+  hdr/.style={font=\tiny\bfseries}
+]
+\node[hdr] at (1.5,2.15) {offline/prefill};
+\node[hdr] at (4.5,2.15) {dynamic/runtime};
+\node[cell, fill=black!5] (tl) at (0,1.8) {\textbf{Reversible}\\FlexiCache\\HeteroCache};
+\node[cell, fill=blue!8] (tr) at (3.0,1.8) {\textbf{Reversible}\\\textbf{WakeKV} (this paper)\\closes the gap};
+\node[cell, fill=black!5] (bl) at (0,0.1) {\textbf{Destructive}\\DuoAttention, HeadKV,\\Ada-KV, CAKE, +4 more};
+\node[cell, fill=black!5] (br) at (3.0,0.1) {\textbf{Destructive}\\R-KV, SCOPE,\\ThinKV, ReasonAlloc};
+\end{tikzpicture}
+}\\[2pt]
+{\footnotesize (a) Method landscape by the two axes}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.50\textwidth}
+\centering
+\scalebox{0.68}{
 \begin{tikzpicture}[
   box/.style={draw, rounded corners, minimum width=3.0cm, minimum height=0.85cm, align=center, font=\small},
   lbl/.style={font=\scriptsize, align=center},
@@ -234,12 +253,15 @@ LRU schedule but destroying instead of reserving.
 \draw[->, thick] (cpu.south) to[bend left=22] node[lbl, below] {fetch: miss,\\wanted again} (gpu.south);
 \draw[->, thick, dashed, black!55] (gpu) -- node[lbl, left, black!55, xshift=-2pt] {evict\\(foil)} (destroyed);
 \end{tikzpicture}
-}
-\caption{WakeKV's reactive residency mechanism (solid): a demoted head's
-state moves to a recoverable CPU reservoir, not destroyed, and is
-fetched back on a miss. The \emph{evict} foil (dashed) isolates
-reversibility as a variable: identical LRU schedule, but demotion
-destroys state instead of reserving it.}
+}\\[2pt]
+{\footnotesize (b) WakeKV's reactive residency mechanism}
+\end{minipage}
+\caption{(a) Prior methods split along two axes---when role is
+decided, and whether demotion is reversible---leaving the
+dynamic-and-reversible quadrant empty until WakeKV. (b) A demoted
+head's state moves to a recoverable CPU reservoir instead of being
+destroyed; the \emph{evict} foil (dashed) shares WakeKV's exact LRU
+schedule but destroys state instead of reserving it.}
 \label{fig:mechanism}
 \end{figure}
 
@@ -257,21 +279,21 @@ needle score and a binary copy-paste score following
 measured on an RTX~2080~Ti (11GB); the 8B model and the real-system
 follow-up ran on an A30 (24GB). This logged attention backs
 \S\ref{sec:motivation} and \S\ref{sec:results} (which adds a fifth
-combo, Mistral-7B/NIAH on H100); the real-hardware deployment runs live
-on a separate A30.
+combo, Mistral-7B/NIAH); the real-hardware deployment runs live on a
+separate A30.
 
 \section{Results}
 \label{sec:results}
 
-Having established that heads shift substantially and that cheap
+Having established that heads shift substantially and cheap
 prediction cannot reliably anticipate wake events
 (\S\ref{sec:motivation}), we ask whether reacting to demand pays off:
-we simulate WakeKV against a frozen (FlexiCache-style) classifier and a
+we simulate WakeKV against a frozen classifier and a
 destructive-eviction foil sharing its exact LRU schedule, then extend
-to three cited baselines and a real-hardware deployment. Because two
-policies at the same nominal budget can realize very different memory,
-every comparison below holds memory or budget fixed exactly rather than
-a shared label. Table~\ref{tab:results} summarizes the headline result;
+to three baselines and a real-hardware deployment. Because two
+policies at the same nominal budget can realize different memory,
+every comparison below holds memory or budget fixed rather than a
+shared label. Table~\ref{tab:results} summarizes the headline result;
 details follow.
 
 \begin{table}[h]
@@ -289,12 +311,10 @@ vs.\ SnapKV/R-KV/ReasonAlloc, matched memory & 4 model/regime$^\dagger$ & \textb
 \end{tabular}
 \renewcommand{\arraystretch}{1.0}
 \caption{Headline results: how often reactive's miss rate was $\leq$ the
-comparator's at every real matched-memory/budget point, plus one
-representative number per row. Full per-combo breakdown in
-Table~\ref{tab:appendix-sweep} (Appendix); real-system result in
-Table~\ref{tab:m2b2}. $^\dagger$Mistral-7B/NIAH excluded here: its
-R-KV/ReasonAlloc needed a non-default pruning interval
-(Table~\ref{tab:appendix-sweep}).}
+comparator's, matched on memory/budget, plus one example per row
+(full breakdown in Table~\ref{tab:appendix-sweep}; real-system result
+in Table~\ref{tab:m2b2}). $^\dagger$Mistral-7B/NIAH excluded: its
+R-KV/ReasonAlloc needed a non-default pruning interval.}
 \label{tab:results}
 \end{table}
 
@@ -307,12 +327,12 @@ the same logged attention: \emph{full} (ceiling), \emph{frozen}
 nothing destroyed), and \emph{evict} (identical LRU schedule to
 reactive, same budget, but destructive demotion, isolating
 reversibility as a variable). Sweeping the per-head budget $B$ traces
-each policy's own (memory, miss-rate) curve; since frozen and reactive
-reach different memory at the same nominal $B$, we interpolate
-reactive's curve piecewise-linearly onto each of frozen's $17$
-actually-measured memory values (pooled across the five combos; $3$ of
-$20$ points are dropped where reactive's sweep never reached that much
-memory). At each of those $17$ matched memory levels, reactive's
+each policy's own (memory, miss-rate) curve (Figure~\ref{fig:pareto});
+since frozen and reactive reach different memory at the same $B$, we
+interpolate reactive's curve onto frozen's $17$ actually-measured
+memory values (pooled across combos; $3$ of $20$ points dropped where
+reactive never reached that much memory). At each of those $17$
+matched-memory levels, reactive's
 interpolated miss rate is $\leq$ frozen's: \textbf{17/17}. At matched
 budget (both share the identical LRU cap, no interpolation needed),
 reactive beats evict in \textbf{19/20} settings; the one exception
@@ -322,34 +342,35 @@ recovers a page evict destroyed, not a flaw in the comparison.
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.75\textwidth]{figures/pareto_curves.png}
-\caption{Memory-vs-miss-rate Pareto fronts, reactive vs.\ frozen vs.\
-evict, across NIAH, CoT, and multi-turn. Reactive sits at or below
-frozen's at all 17 matched memory points and below evict's at 19 of 20
-matched budgets (Table~\ref{tab:results}): lower miss rate, same
-footprint.}
+\caption{Memory-vs-miss-rate Pareto fronts across NIAH, CoT, and
+multi-turn. Reactive sits at or below frozen's at all 17
+matched-memory points and below evict's at 19 of 20 matched budgets
+(Table~\ref{tab:results}).}
 \label{fig:pareto}
 \end{figure}
 
-\subsection{Baseline Comparison}
-
 We further implement three faithful, cited reimplementations:
 SnapKV~\cite{snapkv} (frozen prefill selection), uniform
-R-KV~\cite{rkv} (periodic pruning), and ReasonAlloc~\cite{reasonalloc}
-(online reallocation), each with a declared simplification (no
-redundancy term, raw keys unlogged). The same nominal label is
-misleading since these three prune at several times the memory; under
-the same matched-memory correction, reactive wins \textbf{32/32} valid
-comparisons across the four eligible combos (Table~\ref{tab:results}$^\dagger$).
+R-KV~\cite{rkv} (redundancy-aware pruning, importance-only here since
+raw keys aren't logged), and ReasonAlloc~\cite{reasonalloc} (online
+per-head reallocation, calibrated with an equal split rather than its
+offline Reasoning-Wave allocation)---each a declared simplification.
+The same nominal label is misleading here too: these three prune at
+several times reactive's memory at the same $B$
+(Table~\ref{tab:appendix-sweep}'s ``Reactive mem'' column). Under the
+same matched-memory correction, reactive wins
+\textbf{32/32} comparisons across the four eligible combos (e.g.\
+8B/CoT at $\sim$28k pages: R-KV $0.132$ vs.\ reactive $0.078$;
+Table~\ref{tab:results}$^\dagger$).
 
 \subsection{Real-Hardware Deployment}
 
-A FlexiCache/vLLM shim (zero ``stable'' heads, rerank every step) turns
-stock FlexiCache into WakeKV reactive. On Mistral-7B (LEval $8$k$\to$$1000$,
-A30), reactive beats stock throughput at every rerank interval
-(Table~\ref{tab:m2b2}) while holding $95$--$99\%$ of LongBench quality.
-Part of the win is less attention work, not purely memory: at stock's
-rerank cadence, 0 dense heads alone yields $2.33\times$ throughput for
-a 5-point quality cost.
+A FlexiCache/vLLM shim (zero stable heads, rerank every step) turns
+stock FlexiCache into WakeKV reactive, which beats stock throughput at
+every rerank interval on Mistral-7B (LEval $8$k$\to$$1000$, A30;
+Table~\ref{tab:m2b2}) while holding $95$--$99\%$ of LongBench quality.
+Part of the win is less attention work: at stock's cadence, 0 dense
+heads alone yields $2.33\times$ throughput for a 5-point quality cost.
 
 \begin{table}[h]
 \centering
@@ -367,9 +388,8 @@ Reactive & 16 & 266.6 & \wingreen{2.33$\times$} & 95.0 \\
 \bottomrule
 \end{tabular}
 \caption{Real-system throughput$\times$quality sweep (A30, Mistral-7B,
-LEval 8k$\to$1000, 24 prompts; LongBench 4 tasks $\times$ 30 samples).
-$R{=}1$ is the WakeKV design point; $R{=}16$ is the Pareto knee here
-(largest throughput win, quality still $\geq 95\%$).}
+LEval 8k$\to$1000; LongBench, 4$\times$30 samples). $R{=}1$ is
+WakeKV's design point; $R{=}16$ is the Pareto knee (quality $\geq 95\%$).}
 \label{tab:m2b2}
 \end{table}
 
@@ -377,14 +397,13 @@ $R{=}1$ is the WakeKV design point; $R{=}16$ is the Pareto knee here
 \enlargethispage{9\baselineskip}
 \section{Limitations}
 
-Our models are scout-scale (1.5B--8B) with uneven regime coverage
-(five CoT runs, one multi-turn run); the thresholded 2602.11162 binary
-score reads Jaccard higher than the continuous score
-(Table~\ref{tab:churn}). The simulator counts \emph{misses}, not stall
-\emph{time}, against FlexiCache-\emph{style} policies. The real-system
-result is narrow (single model/regime, one A30); a reversible-vs-evict
-comparison there needs patching FlexiCache's internals (designed, not
-built). Simulator-level results stand on their own.
+Our models are scout-scale (1.5B--8B), and regime coverage is uneven:
+five CoT runs against a single multi-turn run. The simulator also
+simplifies: it counts \emph{misses}, not stall \emph{time}, against
+FlexiCache-\emph{style} policies, not exact code. The real-system
+result is narrower still --- one model/regime --- and preliminary;
+extending it to the reversible-vs-evict/baseline comparison is future
+work. Even so, the simulator-level results stand on their own.
 
 \clearpage
 \begin{thebibliography}{99}
@@ -501,7 +520,7 @@ built). Simulator-level results stand on their own.
 
 Table~\ref{tab:appendix-sweep} gives the raw miss rate for every policy
 at every swept \emph{nominal} budget $B \in \{8,16,32,64\}$, for all
-five model/regime combos (all on real logged data; this is the table
+five model/regime combos (all on real logged data; this is the source
 Table~\ref{tab:results}'s win-counts and Table~\ref{tab:churn} are
 computed from). \textbf{Caution:} Frozen/SnapKV/R-KV/ReasonAlloc realize
 very different actual memory than reactive at the same nominal $B$
@@ -509,10 +528,9 @@ label, so a row's raw numbers are \emph{not} a fair comparison across
 those columns --- only Reactive vs.\ Evict shares the same realized
 memory at each row (identical LRU cap); Table~\ref{tab:results}'s
 matched-memory comparison is the fair read for the rest, and is what
-the paper's win-counts are based on. Mistral-7B/NIAH was re-run on an
-H100 for this table;
-its R-KV/ReasonAlloc columns (marked $\dagger$) use non-default pruning
-hyperparameters (buffer/delta $=8$, not the default $128$) to avoid the
+the paper's win-counts are based on. Mistral-7B/NIAH's R-KV/ReasonAlloc
+columns (marked $\dagger$) use non-default pruning hyperparameters
+(buffer/delta $=8$, not the default $128$) to avoid the
 degenerate no-pruning result this model's short NIAH answers otherwise
 produce, so those two columns are not directly comparable to the
 default-parameter rows above and are excluded from
