@@ -23,8 +23,6 @@
 \setlength{\intextsep}{4pt plus 1pt minus 2pt}
 \setlength{\floatsep}{4pt plus 1pt minus 2pt}
 
-\newcommand{\wingreen}[1]{\textcolor{green!50!black}{#1}}
-
 \title{WakeKV: Reactive, Reversible KV Residency\\
        for Heads That Change Their Minds}
 
@@ -364,18 +362,17 @@ reach that same $2.33\times$.
 Config & Rerank int.\ & Gen tok/s & vs stock & LongBench \% \\
 \midrule
 Stock FlexiCache & 16 (native) & 114.4 & 1.00$\times$ & 100 \\
-\textbf{Reactive (WakeKV)} & \textbf{1} & \textbf{153.6} & \wingreen{\textbf{1.34$\times$}} & \textbf{97.4} \\
-Reactive & 2 & 193.3 & \wingreen{1.69$\times$} & 97.1 \\
-Reactive & 4 & 226.3 & \wingreen{1.98$\times$} & 99.1 \\
-Reactive & 8 & 254.2 & \wingreen{2.22$\times$} & 97.9 \\
-Reactive & $16^\star$ & 266.6 & \wingreen{2.33$\times$} & 95.0 \\
+Reactive (WakeKV) & 1 & 153.6 & \textbf{1.34$\times$} & 97.4 \\
+Reactive & 2 & 193.3 & \textbf{1.69$\times$} & 97.1 \\
+Reactive & 4 & 226.3 & \textbf{1.98$\times$} & 99.1 \\
+Reactive & 8 & 254.2 & \textbf{2.22$\times$} & 97.9 \\
+Reactive & $16^\star$ & 266.6 & \textbf{2.33$\times$} & 95.0 \\
 \bottomrule
 \end{tabular}
 \caption{Real-system throughput$\times$quality sweep (A30, Mistral-7B,
-LEval 8k$\to$1000; LongBench, 4$\times$30 samples). \textbf{Bold}
-marks $R{=}1$, WakeKV's strict design point. $^\star$Marks $R{=}16$,
-the Pareto knee of the throughput--quality frontier traced by relaxing
-$R$ (quality never drops below $95\%$).}
+LEval 8k$\to$1000; LongBench, 4$\times$30 samples). \textbf{Bold} marks
+speedup over stock; $R{=}1$ is WakeKV's design point, $^\star$$R{=}16$
+its Pareto knee (quality stays above $95\%$).}
 \label{tab:m2b2}
 \end{table}
 
