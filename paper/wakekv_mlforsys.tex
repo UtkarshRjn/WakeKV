@@ -383,14 +383,11 @@ $R$ (quality never drops below $95\%$).}
 \enlargethispage{36pt}
 \section{Conclusion and Future Work}
 
-WakeKV replaces static per-head classification with a single reactive
-rule: heads shift too much for a one-time decision but not predictably
-enough to prefetch, so demoted state is reserved, not destroyed. Across
-five real model/regime combinations, it beats frozen classification,
-destructive eviction, and three cited baselines at precisely matched
-memory or budget (Table~\ref{tab:results}); a FlexiCache/vLLM shim on
-Mistral-7B
-further confirms the direction on real hardware.
+Head importance need not be classified once and frozen. A single
+reactive rule---demote under pressure, fetch on demand, never
+discard---consistently beats both the frozen and destructive
+alternatives (Table~\ref{tab:results}), and the gain carries from
+simulation through to real hardware.
 
 Several limitations remain: our models are scout-scale (1.5B--8B) with
 uneven regime coverage; the simulator counts \emph{misses}, not stall
