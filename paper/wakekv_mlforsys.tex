@@ -323,8 +323,8 @@ matched-memory levels, reactive's
 interpolated miss rate is $\leq$ frozen's: \textbf{17/17}. At matched
 budget (both share the identical LRU cap, no interpolation needed),
 reactive beats evict in \textbf{19/20} settings. The sole exception
-occurs at the tightest 8B/CoT budget, where recovering a page evict
-would have destroyed alters the subsequent resident set.
+occurs at the tightest 8B/CoT budget, where recovering a page that
+evict would have destroyed alters the subsequent resident set.
 
 \begin{figure}[h]
 \centering
@@ -336,38 +336,33 @@ matched-memory points and below evict's at 19 of 20 matched budgets
 \label{fig:pareto}
 \end{figure}
 
-\subsection{Baseline Comparison}
-
 We further compare against simulator-compatible reimplementations of
 three cited methods: SnapKV~\cite{snapkv} (prefill-only top-token
 selection, frozen through decode), uniform R-KV~\cite{rkv} (periodic
-redundancy-aware pruning, reduced here to importance-only since raw
-keys aren't logged), and ReasonAlloc~\cite{reasonalloc} (online
-per-head reallocation, calibrated with an equal split rather than its
-offline Reasoning-Wave allocation)---each a declared simplification.
-Comparing at the same
-nominal budget label is misleading here too: these three prune
-periodically and can silently use several times reactive's memory at
-the same $B$ (Table~\ref{tab:appendix-sweep}'s ``Reactive mem''
-column). Under the same matched-memory correction, reactive wins
-\textbf{32/32} comparisons across the four eligible combos---e.g.\ on
-8B/CoT at $\sim$28k pages of realized memory, R-KV's miss rate is
-$0.132$ against reactive's $0.078$ (Table~\ref{tab:results}$^\dagger$).
+redundancy-aware pruning, importance-only here since raw keys aren't
+logged), and ReasonAlloc~\cite{reasonalloc} (online per-head
+reallocation, calibrated with an equal split rather than its offline
+Reasoning-Wave allocation). Comparing at the same nominal budget is
+misleading here too, since these three prune periodically and can use
+several times reactive's memory at the same $B$
+(Table~\ref{tab:appendix-sweep}, ``Reactive mem''). Under the
+matched-memory correction, reactive wins \textbf{32/32} comparisons
+across the four eligible combos---e.g.\ on 8B/CoT at $\sim$28k pages of
+realized memory, R-KV's miss rate is $0.132$ against reactive's
+$0.078$ (Table~\ref{tab:results}$^\dagger$).
 
 \subsection{Real-Hardware Deployment}
 
 A FlexiCache/vLLM shim turns stock FlexiCache into WakeKV reactive:
 zero heads classified ``stable,'' reranking every step instead of its
 native cadence. The strict reactive configuration (rerank every step,
-$R{=}1$) is WakeKV's design point and already beats stock throughput
-by $1.34\times$ at $97.4\%$ LongBench quality. Relaxing how often
-WakeKV rechecks head residency trades some of that strictness for
-throughput: widening the rerank interval traces a
-throughput--quality frontier that reaches $2.33\times$ at $R{=}16$
-while quality never drops below $95\%$ (Table~\ref{tab:m2b2}). Part of
-the win is less attention work, not purely memory: at stock's cadence,
-zero dense heads alone yields $2.33\times$ throughput for a 5-point
-quality cost.
+$R{=}1$) is WakeKV's design point, beating stock throughput by
+$1.34\times$ at $97.4\%$ LongBench quality. Relaxing how often WakeKV
+rechecks head residency trades strictness for throughput, tracing a
+frontier that reaches $2.33\times$ at $R{=}16$ while quality stays
+above $95\%$ (Table~\ref{tab:m2b2}). Part of the win is less attention
+work, not purely memory: zero dense heads at stock's cadence alone
+reach that same $2.33\times$.
 
 \begin{table}[h]
 \centering
@@ -393,17 +388,17 @@ $R$ (quality never drops below $95\%$).}
 \end{table}
 
 \raggedbottom
-\enlargethispage{13\baselineskip}
+\enlargethispage{11\baselineskip}
 \section{Conclusion and Future Work}
 
-In WakeKV, one reactive rule replaces static, once fixed per-head
-classification: heads shift too much for a one-time decision but not
-predictably enough to prefetch, so demoted state is reserved, not
-destroyed. It
-beats frozen classification, destructive eviction, and three cited
-baselines at matched memory or budget across five real model/regime
-combinations (Table~\ref{tab:results}), and a FlexiCache/vLLM shim on
-Mistral-7B confirms the direction on real hardware.
+WakeKV replaces static per-head classification with a single reactive
+rule: heads shift too much for a one-time decision but not predictably
+enough to prefetch, so demoted state is reserved, not destroyed. Across
+five real model/regime combinations, it beats frozen classification,
+destructive eviction, and three cited baselines at precisely matched
+memory or budget (Table~\ref{tab:results}); a FlexiCache/vLLM shim on
+Mistral-7B
+further confirms the direction on real hardware.
 
 Several limitations remain: our models are scout-scale (1.5B--8B) with
 uneven regime coverage (five CoT runs, one multi-turn run); the
