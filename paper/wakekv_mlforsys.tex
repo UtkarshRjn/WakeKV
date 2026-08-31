@@ -307,24 +307,20 @@ R-KV's $0.132$.
 
 \subsection{Reactive vs.\ Frozen and Evict}
 
-We simulate, at page granularity over
-the same logged attention: \emph{full} (ceiling), \emph{frozen}
-(FlexiCache-style split, its published defaults), \emph{reactive}
-(WakeKV: LRU-capped per-head budget, CPU-reservoir fetch-on-demand,
-nothing destroyed), and \emph{evict} (identical LRU schedule to
-reactive, same budget, but destructive demotion, isolating
-reversibility as a variable). Sweeping the per-head budget $B$ traces
-each policy's own (memory, miss-rate) curve (Figure~\ref{fig:pareto});
-since frozen and reactive reach different memory at the same $B$, we
-interpolate reactive's curve onto frozen's $17$ actually-measured
-memory values (pooled across combos; $3$ of $20$ points dropped where
-reactive never reached that much memory). At each of those $17$
-matched-memory levels, reactive's
-interpolated miss rate is $\leq$ frozen's: \textbf{17/17}. At matched
-budget (both share the identical LRU cap, no interpolation needed),
-reactive beats evict in \textbf{19/20} settings. The sole exception
-occurs at the tightest 8B/CoT budget, where recovering a page that
-evict would have destroyed alters the subsequent resident set.
+We simulate four policies at page granularity over the same logged
+attention: \emph{full} (ceiling), \emph{frozen} (FlexiCache's published
+defaults), \emph{reactive} (WakeKV, \S\ref{sec:method}), and
+\emph{evict} (reactive's exact LRU schedule, but destructive demotion,
+isolating reversibility). Sweeping budget $B$ traces each policy's
+(memory, miss-rate) curve (Figure~\ref{fig:pareto}); since frozen and
+reactive reach different memory at the same $B$, we interpolate
+reactive's curve onto frozen's 17 measured memory values (pooled
+across combos, dropping 3 of 20 reactive never reached). At those 17
+matched-memory levels, reactive's miss rate is $\leq$ frozen's:
+\textbf{17/17}. At matched budget (no interpolation needed), reactive
+beats evict in \textbf{19/20} settings; the sole exception, at the
+tightest 8B/CoT budget, is where recovering a page that evict would
+have destroyed alters the subsequent resident set.
 
 \begin{figure}[h]
 \centering
@@ -337,19 +333,15 @@ matched-memory points and below evict's at 19 of 20 matched budgets
 \end{figure}
 
 We further compare against simulator-compatible reimplementations of
-three cited methods: SnapKV~\cite{snapkv} (prefill-only top-token
-selection, frozen through decode), uniform R-KV~\cite{rkv} (periodic
-redundancy-aware pruning, importance-only here since raw keys aren't
-logged), and ReasonAlloc~\cite{reasonalloc} (online per-head
-reallocation, calibrated with an equal split rather than its offline
-Reasoning-Wave allocation). Comparing at the same nominal budget is
-misleading here too, since these three prune periodically and can use
-several times reactive's memory at the same $B$
-(Table~\ref{tab:appendix-sweep}, ``Reactive mem''). Under the
-matched-memory correction, reactive wins \textbf{32/32} comparisons
-across the four eligible combos---e.g.\ on 8B/CoT at $\sim$28k pages of
-realized memory, R-KV's miss rate is $0.132$ against reactive's
-$0.078$ (Table~\ref{tab:results}$^\dagger$).
+three cited methods---SnapKV~\cite{snapkv}, uniform R-KV~\cite{rkv},
+and ReasonAlloc~\cite{reasonalloc} (each a declared simplification;
+details in Appendix~\ref{sec:appendix})---at matched rather than
+nominal memory, since all three prune periodically and can use several
+times reactive's memory at the same $B$
+(Table~\ref{tab:appendix-sweep}, ``Reactive mem''). Reactive wins
+\textbf{32/32} comparisons across the four eligible combos---e.g.\ on
+8B/CoT at $\sim$28k pages of realized memory, R-KV's miss rate is
+$0.132$ against reactive's $0.078$ (Table~\ref{tab:results}$^\dagger$).
 
 \subsection{Real-Hardware Deployment}
 
@@ -388,7 +380,7 @@ $R$ (quality never drops below $95\%$).}
 \end{table}
 
 \raggedbottom
-\enlargethispage{11\baselineskip}
+\enlargethispage{36pt}
 \section{Conclusion and Future Work}
 
 WakeKV replaces static per-head classification with a single reactive
@@ -401,13 +393,12 @@ Mistral-7B
 further confirms the direction on real hardware.
 
 Several limitations remain: our models are scout-scale (1.5B--8B) with
-uneven regime coverage (five CoT runs, one multi-turn run); the
-simulator counts \emph{misses}, not stall \emph{time}, against
-FlexiCache-\emph{style} policies rather than exact code; and the
-real-system result is narrow (one model/regime, one A30) and
-preliminary. A natural next step is to compare
-reversible and destructive eviction on real hardware, using stall time rather than miss counts. Still, simulator results show that
-reactive, reversible residency is a promising alternative to fixed per-head classification.
+uneven regime coverage; the simulator counts \emph{misses}, not stall
+\emph{time}, against FlexiCache-\emph{style} policies rather than
+exact code; and the real-system result is narrow (one model/regime,
+one A30). A natural next step is comparing reversible and destructive
+eviction on a real system using stall time. Still, reactive, reversible
+residency is a promising alternative to fixed per-head classification.
 
 \clearpage
 \begin{thebibliography}{99}
@@ -522,6 +513,15 @@ reactive, reversible residency is a promising alternative to fixed per-head clas
 \par\noindent{\Large\bfseries Appendix}\par\vspace{6pt}
 \section{Full Per-Combo, Per-Budget Sweep}
 \label{sec:appendix}
+
+Our three baselines are simulator-compatible reimplementations, each a
+declared simplification of its cited method: SnapKV~\cite{snapkv}
+(prefill-only top-token selection, frozen through decode), uniform
+R-KV~\cite{rkv} (periodic redundancy-aware pruning, reduced to
+importance-only since raw keys aren't logged), and
+ReasonAlloc~\cite{reasonalloc} (online per-head reallocation,
+calibrated with an equal split rather than its offline Reasoning-Wave
+allocation).
 
 Table~\ref{tab:appendix-sweep} gives the raw miss rate for every policy
 at every swept \emph{nominal} budget $B \in \{8,16,32,64\}$, across all
