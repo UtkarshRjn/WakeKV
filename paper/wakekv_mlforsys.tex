@@ -40,23 +40,19 @@
 \begin{abstract}
 KV-cache compression methods classify attention heads once, offline or
 at prefill, and treat that classification as fixed for the rest of
-generation. We measure per-decode-step head activity across three
-models (1.5B--8B) and three regimes (needle retrieval, long
-chain-of-thought, multi-turn recall) and find 63--85\% of heads shift
-their reading habits at least once within a single generation. We
-present \emph{WakeKV}, a reactive residency policy that demotes cooling
-heads to a CPU reservoir and fetches them back on demand, rather than
-committing to a frozen role or destroying evicted state. At page
-granularity over the same logged attention, WakeKV is matched exactly
-on memory and budget against each comparator rather than compared at
-nominal labels: across five real model/regime combinations, it beats a
-frozen (FlexiCache-style) policy at every matched-memory point (17/17),
-beats destructive eviction at matched budget in 19/20 settings, and
-beats three cited baselines (SnapKV, uniform R-KV, ReasonAlloc) at
-matched memory in all 32 valid comparisons. Preliminary real-system
-measurements (A30, Mistral-7B via a FlexiCache/vLLM shim) confirm the
-direction: 1.34--2.33$\times$ throughput at 95--99\% LongBench quality
-vs.\ stock FlexiCache.
+generation. Across three models (1.5B--8B) and three regimes (needle
+retrieval, long chain-of-thought, multi-turn recall), we find
+63--85\% of heads shift their reading habits at least once per
+generation. We present \emph{WakeKV}, a reactive residency policy that
+demotes cooling heads to a recoverable CPU reservoir instead of
+freezing or destroying their state. Matched exactly on memory and
+budget rather than nominal labels, WakeKV beats a frozen
+(FlexiCache-style) policy at every matched-memory point (17/17),
+destructive eviction at matched budget (19/20), and three cited
+baselines (SnapKV, uniform R-KV, ReasonAlloc) in all 32 valid
+comparisons, across five real model/regime combinations. A
+FlexiCache/vLLM shim on Mistral-7B confirms the direction on real
+hardware: 1.34--2.33$\times$ throughput at 95--99\% LongBench quality.
 \end{abstract}
 
 \section{Introduction}
@@ -320,7 +316,7 @@ recovers a page evict destroyed, not a flaw in the comparison.
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.66\textwidth]{figures/pareto_curves.png}
+\includegraphics[width=0.85\textwidth]{figures/pareto_curves.png}
 \caption{Memory-vs-miss-rate Pareto fronts across NIAH, CoT, and
 multi-turn. Reactive sits at or below frozen's at all 17
 matched-memory points and below evict's at 19 of 20 matched budgets
@@ -511,6 +507,7 @@ their own.
 
 \clearpage
 \appendix
+\par\noindent{\Large\bfseries Appendix}\par\vspace{6pt}
 \section{Full Per-Combo, Per-Budget Sweep}
 \label{sec:appendix}
 
