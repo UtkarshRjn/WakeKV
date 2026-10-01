@@ -334,8 +334,7 @@ NEXT STEPS (in order)
 1. Read the big four closely: FlexiCache, HeteroCache, ReasonAlloc,
    Retrieval-Heads-are-Dynamic (2-3 days).
    -> DONE 2026-07-06 via four parallel deep-read agents. Consolidated
-      briefing: big_four_deep_read.md (same folder — KEEP PRIVATE, do
-      not commit). Gap CONFIRMED and sharpened; system path = fork
+      briefing: big_four_deep_read.md (same folder). Gap CONFIRMED and sharpened; system path = fork
       FlexiCache; battlegrounds = long CoT / multi-turn / cross-genre.
 2. Design the "static fails" demonstration: pick workload (long CoT /
    multi-turn), show frozen head classes leave quality on the table.

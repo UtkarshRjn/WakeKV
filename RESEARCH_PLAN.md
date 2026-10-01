@@ -4,7 +4,7 @@
 demote cooling heads by offloading to CPU, detect heads waking up, and
 promote them back — instead of evicting and losing their history.**
 
-*Plan drafted 2026-07-06. Private — contains unpublished research strategy.*
+*Plan drafted 2026-07-06. Working notes from before the paper; the accepted manuscript is `paper/wakekv_mlforsys.pdf`.*
 
 ---
 

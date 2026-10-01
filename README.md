@@ -1,10 +1,28 @@
-# dynamic-head-kv (private)
+# WakeKV
 
-Research repo for **WakeKV** (working title): reversible, decode-time
-head-priority management for the LLM KV cache — demote cooling attention
-heads by offloading their KV to CPU, detect heads waking up, promote them
-back. Targeting a workshop paper (NeurIPS 2026 workshops primary, ICLR
-2027 workshops backup).
+**WakeKV: Reactive, Reversible KV Residency for Heads That Change Their Minds**
+
+Accepted to the NeurIPS 2026 Workshop on ML for Systems (ML for Systems 2026).
+
+Most KV-cache compression methods classify each attention head once, offline
+or at prefill, and keep that decision fixed for the rest of generation.
+WakeKV does not. Cooling heads are demoted to a recoverable CPU reservoir
+instead of being frozen in place or permanently evicted, and a demoted page
+is fetched back the moment it is needed again. Across 1.5B–8B models, that
+reactive rule lowers miss rate against frozen classification and destructive
+eviction at matched memory or budget, and a FlexiCache/vLLM deployment on
+Mistral-7B improves throughput while holding LongBench quality.
+
+**Paper:** [`paper/wakekv_mlforsys.pdf`](paper/wakekv_mlforsys.pdf)
+
+```bibtex
+@inproceedings{ranjan2026wakekv,
+  title     = {WakeKV: Reactive, Reversible {KV} Residency for Heads That Change Their Minds},
+  author    = {Ranjan, Utkarsh},
+  booktitle = {NeurIPS 2026 Workshop on ML for Systems},
+  year      = {2026}
+}
+```
 
 - [`RESEARCH_PLAN.md`](RESEARCH_PLAN.md) — claims, phases, decision gates,
   risks, compute budget.
@@ -77,6 +95,3 @@ python scripts/analyze_phase1.py runs/Qwen__Qwen2.5-7B-Instruct/niah \
 ```
 
 Output: `signal_study.md` per task dir — the G1 gate report.
-
-**Private:** contains unpublished research strategy. Do not make public
-before the preprint is out.

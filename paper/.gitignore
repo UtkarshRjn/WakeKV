@@ -2,6 +2,7 @@
 *.log
 *.out
 *.pdf
+!wakekv_mlforsys.pdf
 *.toc
 *.bbl
 *.blg

@@ -5,8 +5,7 @@ papers that define the boundary of idea v1 ("dynamic head priority during
 decoding + reversible demotion via CPU offload"). Read this instead of the
 four papers first; go to the originals with this map in hand.*
 
-**KEEP PRIVATE — contains unpublished research strategy. Do not commit to the
-public repo.**
+*Working notes from 2026-07-06. The accepted paper supersedes this briefing.*
 
 ---
 
