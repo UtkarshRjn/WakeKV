@@ -16,9 +16,8 @@
 #                    numpy -- see detect_python in wakekv_gpu_lib.sh)
 #         CONDA_ENV (default "FlexiCache") -- only consulted if neither
 #                    python nor python3 on PATH can import numpy
-# Output: <task_dir>/residency.md written as before by simulate_residency.py,
-#         PLUS a combined residency_all.md at the repo root concatenating
-#         every report (with a header naming the model/task) for easy diffing.
+# Output: <task_dir>/residency.md written by simulate_residency.py, plus a
+#         combined runs/residency_all.md concatenating every report.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,7 +28,7 @@ WAKEKV_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # out per-task-dir would half-write the combined report before failing.
 PYTHON_BIN="$(detect_python)"
 RUNS_ROOT="${1:-$WAKEKV_ROOT/runs}"
-OUT_SUMMARY="$WAKEKV_ROOT/residency_all.md"
+OUT_SUMMARY="$RUNS_ROOT/residency_all.md"
 
 if [ ! -d "$RUNS_ROOT" ]; then
     echo "no such directory: $RUNS_ROOT" >&2

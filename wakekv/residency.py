@@ -406,8 +406,8 @@ def simulate_rkv_uniform(
     keeping the highest-Z tokens (destructive, no reservoir -- the paper
     never mentions offload/recovery).
 
-    AMBIGUITY FLAG ("uniform R-KV" is RESEARCH_PLAN.md's own naming, not
-    the paper's): resolved by reading BOTH R-KV and ReasonAlloc
+    AMBIGUITY FLAG ("uniform R-KV" is this repo's name for the baseline,
+    not R-KV's): resolved by reading BOTH R-KV and ReasonAlloc
     (arXiv:2606.11164v1) together -- R-KV itself never varies its budget
     per head/layer (one global B_budget, applied identically everywhere);
     ReasonAlloc's own Section 6 explicitly frames its contribution as
@@ -511,8 +511,8 @@ def simulate_reasonalloc(
 ) -> SimStats:
     """ReasonAlloc (Liu et al., "ReasonAlloc: Hierarchical Decoding-Time
     KV Cache Budget Allocation for Reasoning Models," arXiv:2606.11164v1,
-    Jun 2026 preprint). NO OFFICIAL CODE -- confirmed by RESEARCH_PLAN.md
-    and a fresh arXiv/GitHub search as of this reimplementation (Aug
+    Jun 2026 preprint). NO OFFICIAL CODE -- confirmed by an arXiv/GitHub
+    search as of this reimplementation (Aug
     2026); this is reconstructed directly from the paper text (Sections
     5.2/5.3, Algorithm 1), not from memory of the name.
 
@@ -568,8 +568,8 @@ def simulate_reasonalloc(
     Confidence: MEDIUM-HIGH on the online head-wise mechanism (read
     directly from Section 5.3/Algorithm 1); LOW/not-attempted on the
     offline layer split (substituted with a flat default rather than
-    forced) -- flagged per RESEARCH_PLAN.md's "never fabricate, flag what
-    is unverified" convention.
+    forced). The substitution is declared here rather than presented as
+    the paper's Reasoning-Wave allocation.
     """
     if n_heads <= 0 or n_units % n_heads != 0:
         raise ValueError(f"n_units ({n_units}) must be a multiple of n_heads ({n_heads})")

@@ -1,23 +1,14 @@
 #!/usr/bin/env python
-"""Generate the two figures wakekv_mlforsys.tex is missing (both \\NEEDFIG
-placeholders): the per-head activity heatmap and the memory-vs-miss-rate
-Pareto curves. No GPU needed -- both read only the committed Phase-0 logs
-(log.npz) under runs/, the same inputs analyze_phase0.py and
-simulate_residency.py already use.
+"""Plot head-activity heatmaps and memory-vs-miss-rate Pareto curves.
 
-  # Figure 1: per-step per-head activity heatmap (paper's Fig. 1)
-  python scripts/make_figures.py heatmap runs/<model>/<cot_task> \\
-      --out paper/figures/churn_heatmap.png
+No GPU needed. Both commands read log.npz under runs/, the same inputs
+analyze_phase0.py and simulate_residency.py use.
 
-  # Figure 2: memory-vs-miss-rate Pareto curves (paper's Fig. 2)
-  # one subplot per task dir passed; the paper overlays one NIAH + one CoT combo
-  python scripts/make_figures.py pareto runs/<model>/<niah_task> runs/<model>/<cot_task> \\
-      --out paper/figures/pareto_curves.png
+  python scripts/make_figures.py heatmap runs/<model>/<task> \\
+      --out figures/churn_heatmap.png
 
-Run this wherever runs/ actually lives (this repo checkout may not have
-it locally -- see paper/README.md); copy the resulting PNGs into
-paper/figures/ and swap each \\NEEDFIG{...} block in wakekv_mlforsys.tex
-for \\includegraphics.
+  python scripts/make_figures.py pareto runs/<model>/<niah> runs/<model>/<cot> \\
+      --out figures/pareto_curves.png
 """
 
 from __future__ import annotations
@@ -152,14 +143,14 @@ def main() -> None:
     hp.add_argument("task_dir", help="runs/<model>/<task>")
     hp.add_argument("--run", help="specific run subdir name (default: first found)")
     hp.add_argument("--top-n", type=int, default=12)
-    hp.add_argument("--out", default="paper/figures/churn_heatmap.png")
+    hp.add_argument("--out", default="figures/churn_heatmap.png")
     hp.set_defaults(func=cmd_heatmap)
 
     pp = sub.add_parser("pareto", help="Figure 2: memory-vs-miss-rate Pareto curves")
     pp.add_argument("task_dirs", nargs="+", help="one or more runs/<model>/<task> dirs, one subplot each")
     pp.add_argument("--budgets", type=int, nargs="+", default=[8, 16, 32, 64])
     pp.add_argument("--page-size", type=int, default=16)
-    pp.add_argument("--out", default="paper/figures/pareto_curves.png")
+    pp.add_argument("--out", default="figures/pareto_curves.png")
     pp.set_defaults(func=cmd_pareto)
 
     args = ap.parse_args()

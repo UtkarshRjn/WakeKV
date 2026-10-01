@@ -154,10 +154,10 @@ def main() -> None:
         f"- unstable-head fraction (TS<0.5, FlexiCache metric): mean {np.mean(ts):.3f}",
         f"- heads with >=1 drift event (HeteroCache metric): mean {np.mean(dr):.3f}",
         "",
-        "## G0 gate",
-        "PASS requires: adjacent-step Jaccard well below 1.0 AND a non-trivial",
-        "unstable/drifting head fraction in the target regimes (see",
-        "RESEARCH_PLAN.md section 4). Judge against the numbers above.",
+        "## Head churn",
+        "Heads are shifting during decoding when adjacent-step Jaccard is well",
+        "below 1.0 and a non-trivial fraction of heads are unstable or drift.",
+        "Judge against the numbers above.",
     ]
     (task_dir / "summary.md").write_text("\n".join(lines) + "\n")
     (task_dir / "summary.json").write_text(json.dumps(reports, indent=2))
