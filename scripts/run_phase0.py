@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Phase 0 runner: instrumented generation + per-step head logging.
+"""Log top-k attention during decoding, for head-churn measurement.
 
 Examples:
   python scripts/run_phase0.py --model Qwen/Qwen2.5-3B-Instruct \

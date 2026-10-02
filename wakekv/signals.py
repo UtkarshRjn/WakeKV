@@ -1,13 +1,13 @@
-"""Phase 1: candidate wake-up signals + lead-time evaluation (gate G1).
+"""Wake-up signals and lead-time evaluation.
 
-All functions operate offline on Phase-0 logs (numpy only). A "wake-up
-event" for a head is a sustained transition of its continuous needle score
-from inactive to active (with hysteresis, to avoid counting threshold
-jitter as churn — the binary-artifact caveat in 2602.11162).
+Operates on logged attention (numpy only). A wake-up is a sustained
+transition of a head's continuous needle score from inactive to active,
+with hysteresis so threshold jitter is not counted as churn.
 
-A signal passes G1 if it predicts wake-ups with enough LEAD TIME that a
-CPU->GPU prefetch of the head's working set completes before the head is
-needed (see ``transfer_steps_needed``).
+The paper's question is whether a cheap online signal predicts that
+transition early enough to prefetch the head's KV from CPU before it is
+needed (see ``transfer_steps_needed``). In the reported experiments, none
+of them do.
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ def signal_entropy_trend(topk_val: np.ndarray, window: int = 8) -> np.ndarray:
     """Rising attention entropy (renormalized over the stored top-k weights).
 
     ``topk_val``: [steps, k] attention weights for one head. Entropy is
-    approximate (top-k only) — flagged as such in reports.
+    approximate, because the log stores only the top-k weights.
     """
     v = topk_val.astype(np.float64)
     v = v / np.clip(v.sum(-1, keepdims=True), 1e-9, None)
@@ -227,8 +227,9 @@ def ensemble_vote(zscored_signals: list[np.ndarray], threshold: float = 2.0) -> 
     exceed ``threshold`` at that step.
 
     Grade with ``evaluate_fixed_threshold`` at, e.g., threshold=1.5 to mean
-    "fires when at least 2 of the signals agree" — the four Phase-1 signals
-    (online_rco, drift, entropy_trend, needle_mass_delta) each failed alone,
+    "fires when at least 2 of the signals agree" — page-overlap change,
+    windowed-median drift, entropy trend, and needle-mass delta each fail
+    alone to predict wake-ups,
     but they need not share the same false positives; requiring agreement
     trades recall for precision only if their errors are actually
     decorrelated, which this tests.
@@ -364,7 +365,9 @@ def transfer_steps_needed(
     pcie_gbps: float = 21.0,
     decode_step_ms: float = 30.0,
 ) -> float:
-    """Decode steps a CPU->GPU promotion needs; the lead-time bar for G1.
+    """Decode steps a CPU-to-GPU prefetch needs.
+
+    A signal is early enough to prefetch only if its lead covers this.
 
     Defaults: 21 GB/s effective PCIe (HeteroCache's measured Gen4 number)
     and 30 ms/step (~33 tok/s single-request 8B decode). Override with

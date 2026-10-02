@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared host-portability helpers for the M2b-2 real-system scripts
+# Host helpers for the FlexiCache throughput and LongBench scripts.
 # (wakekv_rerank_sweep.sh, wakekv_quality_pareto.sh, wakekv_longbench_check.sh).
 #
 # TORCH_CUDA_ARCH_LIST tells the CUDA build/JIT toolchain which compute

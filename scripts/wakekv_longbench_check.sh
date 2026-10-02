@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M2b-2 quality check: does reactive mode preserve LongBench accuracy?
+# Does reactive residency keep LongBench quality while changing throughput?
 #
 # Companion to wakekv_rerank_sweep.sh (throughput). Runs FlexiCache's real
 # LongBench harness (benchmarks/FlexiCache/Language_Modelling/LongBench) at:
@@ -8,8 +8,8 @@
 # scores both with the harness's eval.py, and writes per-config quality JSONs
 # ({"per_task": {task: score}}) that wakekv_sweep_table.py --quality-dir reads.
 #
-# Quality is expected to be preserved; a task regressing more than a few points
-# is a real finding and blocks M2b-2.
+# The paper holds LongBench quality while reporting throughput. A task that
+# drops more than a few points is a real result, not a passing check.
 #
 # GPU-portable: TORCH_CUDA_ARCH_LIST is auto-detected from whatever GPU
 # is actually attached (see wakekv_gpu_lib.sh); an explicit env var still
@@ -43,7 +43,7 @@ export VLLM_ENABLE_V1_MULTIPROCESSING=0
 MODEL="Mistral-7B-Instruct-v0.2"                     # run_benchmark.py model KEY (not HF path)
 BENCH_DIR="$FLEXI_ROOT/benchmarks/FlexiCache/Language_Modelling/LongBench"
 BENCH_SCRIPT="${BENCH_SCRIPT:-$BENCH_DIR/run_benchmark.py}"
-OUT_DIR="$BENCH_DIR/Results_M2b2"
+OUT_DIR="$BENCH_DIR/wakekv_sweep"
 mkdir -p "$OUT_DIR"
 cd "$BENCH_DIR"
 
@@ -97,5 +97,5 @@ PY
 
 echo "==== quality check done $(date) ===="
 python "$WAKEKV_ROOT/scripts/wakekv_sweep_table.py" \
-       "$FLEXI_ROOT/benchmarks/FlexiCache/Throughput/Results_M2b2" \
+       "$FLEXI_ROOT/benchmarks/FlexiCache/Throughput/wakekv_sweep" \
        --quality-dir "$OUT_DIR" || true

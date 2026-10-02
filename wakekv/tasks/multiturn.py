@@ -59,8 +59,8 @@ def build_multiturn_prompt(tokenizer, n_filler_turns: int = 3) -> dict:
         messages.append({"role": "user", "content": user_msg})
         messages.append({"role": "assistant", "content": asst_msg})
     # A single-fact question ("what was my wifi password?") is answered in
-    # ~15 tokens then EOS — far too short to give Phase 1 a horizon (drift
-    # needs window=8, wake-events need 8 quiet steps). Ask for a longer,
+    # ~15 tokens then EOS — too short to observe a wake-up (drift uses an
+    # 8-step window, and a wake event needs 8 quiet steps). Ask for a longer,
     # sequential recall of ALL facts with connective text between them, so
     # the generation contains several quiet->active retrieval cycles that
     # the per-step instrumentation can actually see.

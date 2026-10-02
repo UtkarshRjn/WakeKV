@@ -2,7 +2,7 @@
 
 These cover the argv-rewriting that routes the target through the in-process
 bootstrap (the fix for the execvp-drops-the-shim bug). The real end-to-end
-launch is verified on wolverine in the M2b-1b smoke test; here we test the
+launch needs a FlexiCache/vLLM process; here we test the
 pure logic without spawning vLLM.
 """
 

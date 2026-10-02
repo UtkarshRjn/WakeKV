@@ -1,4 +1,4 @@
-"""Tests for scripts/wakekv_sweep_table.py — the M2b-2 analyzer.
+"""Tests for scripts/wakekv_sweep_table.py, the rerank-sweep table.
 
 We cover the pure-Python parts (label extraction, quality-shape parsing,
 end-to-end table rendering) so an accidental format drift in the

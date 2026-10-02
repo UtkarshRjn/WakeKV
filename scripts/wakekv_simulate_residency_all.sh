@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Run simulate_residency.py over EVERY (model, task) directory under runs/
-# that actually has Phase-0 logs, so a single command produces the full
-# residency simulation (C2: reactive vs frozen at matched memory, C3:
-# reactive/offload vs evict/destroy at the same budget) across every
+# that has attention logs, so one command replays residency
+# (reactive vs frozen at matched memory, and reactive vs destructive
+# eviction at the same budget) across every
 # model/task combo you've run so far.
 #
 # simulate_residency.py itself only takes ONE task_dir at a time (it pools
@@ -36,7 +36,7 @@ if [ ! -d "$RUNS_ROOT" ]; then
 fi
 
 : > "$OUT_SUMMARY"
-echo "# Combined Phase 2a residency simulation — $(date)" >> "$OUT_SUMMARY"
+echo "# Residency simulation — $(date)" >> "$OUT_SUMMARY"
 
 shopt -s nullglob
 found_any=0

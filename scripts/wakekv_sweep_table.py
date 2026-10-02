@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Tabulate the M2b-2 WakeKV rerank-interval sweep.
+"""Tabulate the WakeKV rerank-interval sweep.
 
 Reads the throughput JSONs written by wakekv_rerank_sweep.sh
 (``wakekv-<label>.json``) and prints a markdown table of generation
@@ -91,7 +91,7 @@ def main(argv: list[str]) -> int:
     # reference; stock (FlexiCache baseline) next; reactive-r* by interval.
     order = sorted(tp, key=lambda l: (l != "fullkv", l != "stock", _interval_of(l)))
 
-    print(f"\n# M2b-2 — WakeKV reactive sweep ({args.throughput_dir})\n")
+    print(f"\n# WakeKV reactive sweep ({args.throughput_dir})\n")
     header = "| config | rerank interval | gen tok/s | elapsed (s) | vs stock |"
     sep = "|---|---|---:|---:|---:|"
     if args.quality_dir:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M2b-2 quality PARETO: LongBench accuracy for stock + reactive at every
+# LongBench accuracy for stock FlexiCache and reactive WakeKV at every
 # rerank interval, so the quality column sits next to the full throughput
 # sweep (wakekv_rerank_sweep.sh).
 #
@@ -44,7 +44,7 @@ export VLLM_ENABLE_V1_MULTIPROCESSING=0
 
 MODEL="Mistral-7B-Instruct-v0.2"
 BENCH_DIR="$FLEXI_ROOT/benchmarks/FlexiCache/Language_Modelling/LongBench"
-OUT_DIR="$BENCH_DIR/Results_M2b2"
+OUT_DIR="$BENCH_DIR/wakekv_sweep"
 mkdir -p "$OUT_DIR"
 cd "$BENCH_DIR"
 
@@ -118,5 +118,5 @@ done
 
 echo "==== quality pareto done $(date) ===="
 python "$WAKEKV_ROOT/scripts/wakekv_sweep_table.py" \
-       "$FLEXI_ROOT/benchmarks/FlexiCache/Throughput/Results_M2b2" \
+       "$FLEXI_ROOT/benchmarks/FlexiCache/Throughput/wakekv_sweep" \
        --quality-dir "$OUT_DIR" || true

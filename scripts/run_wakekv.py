@@ -99,7 +99,7 @@ def main() -> int:
         type=int,
         default=1,
         help="Value forced into FlexiCacheConfig.rerank_frequency in reactive "
-        "mode. Sweep {1, 2, 4, 8, 16} for the M2b-2 Pareto.",
+        "mode. Sweep {1, 2, 4, 8, 16} for the paper's throughput-quality curve.",
     )
     ap.add_argument(
         "argv",

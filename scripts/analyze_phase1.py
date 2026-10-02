@@ -1,13 +1,14 @@
 #!/usr/bin/env python
-"""Phase 1: signal study on Phase-0 logs — gate G1 report.
+"""Wake-up prediction report from logged attention.
 
   python scripts/analyze_phase1.py runs/<model>/<task> \
       [--page-size 16] [--pcie-gbps 21] [--decode-step-ms 30]
 
 For every run with needle scores, extracts per-head wake-up events and
-evaluates each candidate signal's precision/recall at lead times
-{1,2,4,8,16,32} steps, then compares achievable lead against the transfer
-time of a typical promotion (G1: lead must cover the fetch).
+evaluates each candidate signal's precision and recall at lead times
+{1,2,4,8,16,32} steps, then compares that lead with the time to prefetch
+one head's working set from CPU. The paper finds these signals are not
+reliable enough to prefetch.
 
 Candidates: the four original attention-derived signals (online_rco, drift,
 entropy_trend, needle_mass_delta), ensemble_vote (how many of the four
@@ -219,10 +220,10 @@ def main() -> None:
                 "needle_mass_delta": signal_needle_mass_delta(flat_score[:, u]),
             }
             # Ensemble: each of the four attention-derived signals fires if
-            # its OWN causal z-score exceeds args.z_threshold; the ensemble
-            # signal is the vote count. Individually each failed G1 (P
-            # 0.04-0.20) — this tests whether their false positives are
-            # decorrelated enough that requiring agreement helps.
+            # its own causal z-score exceeds args.z_threshold; the ensemble
+            # signal is the vote count. None of the four is precise enough
+            # to prefetch on its own. This checks whether requiring agreement
+            # helps because their false positives differ.
             zvote_inputs = [
                 causal_zscore(sigs[n], window=args.z_window)
                 for n in ("online_rco", "drift", "entropy_trend", "needle_mass_delta")
@@ -234,7 +235,7 @@ def main() -> None:
                 raw[name].append((sig, ev))
 
     if not agg:
-        sys.exit("no wake-up events found — check thresholds or G0 first")
+        sys.exit("no wake-up events found — check thresholds or the attention log")
 
     # Transfer-time bar: promoting one head's full top-k working set.
     kb = page_kv_bytes()
@@ -244,7 +245,7 @@ def main() -> None:
         pcie_gbps=args.pcie_gbps, decode_step_ms=args.decode_step_ms,
     )
 
-    lines = [f"# Phase 1 signal study — {task_dir}", "",
+    lines = [f"# Wake-up prediction — {task_dir}", "",
              f"- total wake-up events: {total_events}",
              f"- transfer bar: promoting 64 pages x 1 KV head ≈ "
              f"{steps_bar:.2f} decode steps "
@@ -269,18 +270,18 @@ def main() -> None:
                 cur = best_by_signal.get(name)
                 if cur is None or best.precision > cur[1]:
                     best_by_signal[name] = (lead, best.precision, best.recall)
-    lines += ["", "## G1 gate",
-              f"A signal passes if at some lead >= {steps_bar:.1f} steps it keeps "
-              "useful precision/recall (judge trade-off; see plan §4)."]
+    lines += ["", "## Prefetch lead",
+              f"A signal is early enough to prefetch only if some lead >= "
+              f"{steps_bar:.1f} steps still has useful precision and recall."]
     for name, (lead, p, r) in sorted(best_by_signal.items(), key=lambda kv: -kv[1][1]):
         lines.append(f"- {name}: lead {lead} -> precision {p:.2f}, recall {r:.2f}")
     if not best_by_signal:
-        lines.append("- NO signal clears the transfer bar -> fallback: reactive "
-                     "promotion + honest stall accounting (plan risk R2).")
+        lines.append("- No signal clears the transfer bar. The paper therefore "
+                     "reacts to demand instead of prefetching.")
 
     # Honest version: ONE global threshold per signal (what the controller
     # actually uses), events/alarms pooled across all heads — no per-head
-    # cherry-picking. This is the table the Phase 2 design should trust.
+    # cherry-picking. This is the grading a runtime policy can actually use.
     lines += ["", f"## Fixed global threshold (quantile {args.fixed_quantile})",
               "One cutoff per signal, applied to every head, pooled P/R. "
               "This is what a runtime controller can actually achieve.", "",
@@ -308,7 +309,7 @@ def main() -> None:
     # Deployable middle ground: causal per-head z-score (each head normalized
     # against its OWN trailing window, using only past values) + one global
     # z-threshold. Fair across heterogeneous heads and fires online — this is
-    # the number the Phase 2 controller can actually hit.
+    # the number an online policy can actually hit.
     lines += ["", f"## Causal per-head z-score + global z>{args.z_threshold} (deployable)",
               "Each head's signal normalized against its own past "
               f"(window {args.z_window}); one z-threshold for all heads. "

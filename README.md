@@ -84,7 +84,7 @@ python scripts/analyze_phase0.py runs/Qwen__Qwen2.5-3B-Instruct/niah
 
 ## Wake-up prediction
 
-Reads the Phase-0 logs. Override the PCIe and step-time defaults with
+Reads the attention logs. Override the PCIe and step-time defaults with
 measured values.
 
 ```bash
@@ -144,7 +144,7 @@ head on FlexiCache's sparse top-B path, and sets the rerank interval.
 ```bash
 export FLEXI_ROOT=/path/to/FlexiCache
 bash scripts/reproduce_paper.sh system
-python scripts/wakekv_sweep_table.py "$FLEXI_ROOT/benchmarks/FlexiCache/Throughput/Results_M2b2"
+python scripts/wakekv_sweep_table.py "$FLEXI_ROOT/benchmarks/FlexiCache/Throughput/wakekv_sweep"
 
 python scripts/run_wakekv.py --mode reactive --rerank-interval 1 -- \
     python -m vllm.entrypoints.openai.api_server \

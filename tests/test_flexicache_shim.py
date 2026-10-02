@@ -1,10 +1,8 @@
 """Tests for the FlexiCache shim.
 
-We can't import real FlexiCache here (it's only installed on wolverine),
-so these tests hit the shim's pure-Python core via ``_apply_config_override``
-on a mock config object. That covers everything the shim actually does
-policy-wise; the real-FlexiCache integration is verified separately in the
-M2b-1b smoke test on wolverine.
+These tests do not import FlexiCache. They call ``_apply_config_override``
+on a mock config. That is the whole policy change: clear ``unstable_heads``
+and set the rerank interval. Running it inside vLLM is a separate machine.
 """
 
 from __future__ import annotations
@@ -69,7 +67,7 @@ def test_reactive_zeros_scalar_unstable_head_fields():
     """Regression: reactive must zero the scalar num_unstable_heads (and
     unstable_heads_portion), not just the list. Leaving num_unstable_heads>0
     while unstable_heads==[] sends FlexiCache's GPU block-count assertion down
-    the wrong branch (off-by-one crash at engine init). See M2b-1b smoke."""
+    the wrong branch (off-by-one crash at engine init)."""
     shim._current_mode = "reactive"
     shim._current_rerank_interval = 1
     cfg = _mock_config(unstable_heads=[[3, 5], [4, 7]], rerank_frequency=16)

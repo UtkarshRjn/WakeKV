@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Phase 0 analysis: churn statistics + G0 gate report from logged runs.
+"""Head-churn report from logged attention.
 
   python scripts/analyze_phase0.py runs/<model>/<task> [--page-size 16] \
       [--score-thresholds 0.1 0.2 0.3]
@@ -137,7 +137,7 @@ def main() -> None:
         reports.append(rep)
         print(json.dumps(rep, indent=2))
 
-    lines = [f"# Phase 0 summary — {task_dir}", ""]
+    lines = [f"# Head churn — {task_dir}", ""]
     binary_reports = [r for r in reports if "binary" in r]
     if binary_reports:
         adj = [r["binary"]["adjacent_jaccard_mean"] for r in binary_reports]

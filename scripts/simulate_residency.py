@@ -1,15 +1,13 @@
 #!/usr/bin/env python
-"""Phase 2 (Option B): reactive-residency simulation over Phase-0 logs.
+"""Residency simulation over logged attention.
 
-Replays each run's logged attention through Full / Frozen (FlexiCache-style)
-/ Reactive (WakeKV) / Evict (LRU-ablation foil) residency policies, plus
-three Phase-3 baseline reimplementations (SnapKV, uniform R-KV,
-ReasonAlloc — see wakekv/residency.py's module docstring for what each
-actually is and what's simplified), sweeping the per-head page budget, and
-reports the miss-rate-vs-memory tradeoff. The headline test (C2): at
-matched GPU memory, does reactive miss less than frozen in shifting-role
-regimes (long CoT, multi-turn)? Also C3 (reactive vs. evict) and reactive
-vs. each real baseline, all at matched budget.
+Replays each run through full, frozen (FlexiCache-style), reactive
+(WakeKV), and evict (same LRU schedule, destructive demotion), plus
+SnapKV, uniform R-KV, and ReasonAlloc. See wakekv/residency.py for what
+each baseline simplifies. Sweeps the per-head page budget and reports
+miss rate against memory. At matched memory, does reactive miss no more
+than frozen? At the same budget, does it miss no more than destructive
+eviction, and no more than the three baselines at matched memory?
 
   python scripts/simulate_residency.py runs/<model>/<task> \
       [--budgets 8 16 32 64] [--page-size 16] [--unstable-frac 0.25] [--refresh 16]
@@ -17,7 +15,7 @@ vs. each real baseline, all at matched budget.
 
 No GPU. Writes residency.md into the task dir. The three baseline
 policies need topk_val (attention weights, not just page ids) in the log
-— every Phase-0 run has it (wakekv/instrument.py always logs it) — and
+— every attention log has it (wakekv/instrument.py always records it) — and
 are skipped with a warning, per run, if it's missing.
 """
 
@@ -161,19 +159,20 @@ def main() -> None:
               f"Reactive misses <= frozen at matched memory at "
               f"**{wins}/{total}** frozen operating points.",
               *detail, "",
-              "A win here supports C2 (frozen classification leaves quality on "
-              "the table in shifting regimes). NOTE the miss asymmetry: a "
-              "reactive miss is a paid fetch STALL (quality preserved), a frozen "
-              "miss is a quality GAP (page unavailable until rerank). So reactive "
-              "trades memory for stalls, not for accuracy.",
+              "Frozen classification keeps a head's role fixed, so a shifting "
+              "head is mis-served until the next refresh. A reactive miss is "
+              "one recoverable fetch; a frozen miss is a page that stays "
+              "unavailable. Reactive trades memory for stalls, not for a "
+              "lost history.",
               "",
-              "Caveats: reactive fetches far more than frozen (see column) — the "
-              "stall COUNT here is a proxy for stall TIME, which only Phase 2b "
-              "measures on real PCIe. Page granularity from logged top-k (not "
-              "full KV); scout-scale models. This sim ranks policies on the "
-              "memory/miss frontier; it does not predict serving throughput."]
+              "Caveats, as in the paper: the stall count here is not stall "
+              "time on real PCIe, and the comparison is against a "
+              "FlexiCache-style policy rather than that system's exact code. "
+              "Pages come from logged top-k, not a full KV. This ranks "
+              "policies on the memory/miss curve; it does not predict "
+              "serving throughput."]
 
-    # C3: reactive (offload) vs evict (destroy), SAME budget. No interpolation
+    # Reactive (offload) vs evict (destroy), same budget. No interpolation
     # needed here, unlike the frozen comparison above — both policies share
     # the identical LRU cap, so memory is matched by construction, not by
     # interpolating onto the other's operating point.
@@ -192,7 +191,7 @@ def main() -> None:
             f"reactive {rr:.3f} vs evict {er:.3f} "
             f"{'(reactive better)' if rr <= er else '(evict better)'}"
         )
-    lines += ["", "## C3 read (reversible vs. destructive demotion, same budget)",
+    lines += ["", "## Reversible vs. destructive demotion, same budget",
               f"Reactive (offload) misses <= evict (destroy) at "
               f"**{c3_wins}/{c3_total}** matched budgets.",
               *c3_detail, "",
@@ -206,9 +205,9 @@ def main() -> None:
               "itself as the source of the advantage, holding dynamism, "
               "budget, and eviction order fixed on both sides."]
 
-    # Phase 3: reactive vs. each real baseline reimplementation, same
-    # budget. Same matched-budget logic as C3 above (no interpolation
-    # needed -- both sides use the identical `budget` parameter).
+    # Reactive vs. SnapKV, uniform R-KV, and ReasonAlloc. Same nominal
+    # budget on both sides; realized memory still differs, so the matched
+    # comparison below interpolates onto memory, as the paper does.
     baseline_labels = {
         "snapkv": "SnapKV (frozen prefill selection)",
         "rkv_uniform": "uniform R-KV (importance-ranked destructive pruning)",
@@ -247,7 +246,7 @@ def main() -> None:
     # the nominal budget label. This is the fair comparison -- the nominal-
     # budget rows above can have the two sides differing by up to ~9x in
     # realized memory (see PR discussion), which the interpolation corrects
-    # for exactly the way C2's frozen-vs-reactive read already does.
+    # the same way the frozen-vs-reactive comparison already does.
     any_matched = False
     for pol in BASELINE_POLICIES:
         pol_points = [
@@ -283,15 +282,15 @@ def main() -> None:
                   *detail_m]
     if any_matched:
         lines += ["", "This is the fair reading of the three-baseline "
-                  "comparison: it holds memory constant, the way C2's "
-                  "frozen-vs-reactive read already does, instead of comparing "
+                  "comparison: it holds memory constant, the way the "
+                  "frozen-versus-reactive read already does, instead of comparing "
                   "at a shared nominal budget label the two sides realize "
                   "very differently."]
 
     if any_baseline_data:
         lines += ["", "Caveats specific to these three (see "
-                  "`wakekv/residency.py`'s docstrings for exact simplifications "
-                  "and confidence levels): \"same budget\" is a NOMINAL target "
+                  "`wakekv/residency.py`, matching the paper's appendix): "
+                  "\"same budget\" is a nominal target "
                   "for rkv_uniform/reasonalloc, not continuous capping like "
                   "reactive/evict -- they only prune at periodic buffer/delta "
                   "boundaries (default every 128 steps), so realized mean "
@@ -304,8 +303,7 @@ def main() -> None:
                   "vectors (needed for redundancy) aren't logged; "
                   "ReasonAlloc's offline per-layer budget calibration is "
                   "substituted with an equal split, not the paper's "
-                  "Reasoning-Wave allocation. Each is a real, cited "
-                  "reimplementation with a declared gap, not a guess."]
+                  "Reasoning-Wave allocation."]
 
     (task_dir / "residency.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))

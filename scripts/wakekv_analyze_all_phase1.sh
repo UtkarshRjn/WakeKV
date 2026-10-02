@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run analyze_phase1.py over EVERY (model, task) directory under runs/ that
-# actually has Phase-0 logs, so a single command produces the full signal
+# actually has attention logs, so a single command produces the full signal
 # study (four attention signals + ensemble_vote + the data-driven
 # token/wake correlation) across every model/task combo you've run so far.
 #
@@ -25,7 +25,7 @@ if [ ! -d "$RUNS_ROOT" ]; then
 fi
 
 : > "$OUT_SUMMARY"
-echo "# Combined Phase 1 signal study — $(date)" >> "$OUT_SUMMARY"
+echo "# Wake-up prediction — $(date)" >> "$OUT_SUMMARY"
 
 shopt -s nullglob
 found_any=0

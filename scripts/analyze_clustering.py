@@ -1,12 +1,9 @@
 #!/usr/bin/env python
-"""Phase 1 follow-up: are wake-ups temporally CLUSTERED or UNIFORM?
+"""Are wake-ups bursty enough that a coarse trigger could prefetch them?
 
-Decides the fork after G1. If per-head wake-ups bunch at shared moments
-(e.g. reasoning-phase boundaries where many heads wake together), a single
-coarse trigger can prefetch the about-to-be-needed heads with high recall
-at low alarm count -- the proactive design the per-head z-score couldn't
-support. If wake-ups are spread uniformly in time, reactive fetch-on-demand
-is the honest choice.
+The paper finds wake-ups are bursty relative to a shuffle null, but a
+coarse trigger still misses too many of them. Together with the per-head
+signal study, that is why WakeKV reacts to demand instead of prefetching.
 
 Method: pool per-head wake events into a per-step histogram (how many heads
 wake at each decode step). Measure how concentrated events are in the
@@ -16,7 +13,7 @@ structure but keeps each head's event count). Concentration well above the
 null = genuine temporal clustering. Fano factor (var/mean of per-step
 counts) and max simultaneous co-wake are reported as supporting evidence.
 
-Pure numpy on existing Phase-0 logs. No GPU.
+Pure numpy on logged attention. No GPU.
 
   python scripts/analyze_clustering.py runs/<model>/<task>
 """
@@ -192,13 +189,12 @@ def main() -> None:
              f"- mean boundary-trigger recall: {mean_brecall:.2f}", "",
              "## Verdict",
              f"{'CLUSTERED' if clustered else 'NOT clearly clustered'} — "
-             + ("wake-ups bunch in time well beyond chance and a coarse "
-                "boundary trigger would catch most of them: the proactive "
-                "boundary-prefetch design is worth pursuing."
+             + ("wake-ups bunch in time well beyond chance, and a coarse "
+                "trigger would catch most of them."
                 if clustered else
-                "wake-ups are close to uniform-in-time (or a coarse trigger "
-                "misses too many): accept the reactive fetch-on-demand design "
-                "(plan risk R2). The G1 negative result stands."),
+                "wake-ups are close to uniform in time, or a coarse trigger "
+                "misses too many of them. Either way the paper does not "
+                "prefetch: it fetches a page when the step wants it."),
              "",
              f"Reading: concentration = share of events in the busiest "
              f"{top_frac:.1%} of steps (uniform ~= {top_frac:.3f}). "

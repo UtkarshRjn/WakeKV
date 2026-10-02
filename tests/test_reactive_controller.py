@@ -123,11 +123,11 @@ def test_lru_rerank_interval_defers_eviction():
 
 def test_lru_matches_original_simulator_on_synthetic_shift():
     """Regression check: on the same synthetic shifting-role stream used to
-    validate the Phase 2a simulator, the controller must produce the SAME
+    validate the residency simulator, the controller must produce the SAME
     miss rate and mean-resident-pages as ``simulate_reactive``."""
     from wakekv.residency import simulate_reactive
 
-    # Build the exact synthetic stream from PR #3's sanity check.
+    # Synthetic shifting demand: each head's pages walk forward over time.
     S, H, B = 300, 4, 12
     stream = []
     for t in range(S):
@@ -158,7 +158,7 @@ def test_lru_matches_original_simulator_on_synthetic_shift():
 
 # --------------------------------------------------------------- evict mode
 def test_evict_never_recovers_a_destroyed_page():
-    """Phase 3 / E3c (ReasonAlloc-style): unlike offload, a demoted page
+    """Destructive demotion: unlike offload, a demoted page
     never comes back, no matter how many times it's re-wanted."""
     ctrl = ReactiveController(n_units=1, budget=2, demotion="evict")
     for step, want in enumerate([{1}, {2}, {3}]):
@@ -196,8 +196,7 @@ def test_evict_first_touch_is_not_a_miss():
 def test_evict_matches_original_simulator_on_synthetic_shift():
     """Regression check: on the same synthetic shifting-role stream used
     for the offload regression test, evict mode must produce the SAME
-    numbers as wakekv.residency.simulate_evict (already validated on real
-    Phase 0/1 logs in PR #19)."""
+    numbers as wakekv.residency.simulate_evict on the same stream."""
     from wakekv.residency import simulate_evict
 
     S, H, B = 300, 4, 12

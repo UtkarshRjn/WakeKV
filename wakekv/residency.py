@@ -1,8 +1,7 @@
-"""Reactive-residency simulator (Phase 2, Option B).
+"""Residency simulator.
 
-Replays a Phase-0 log as a stream of per-step, per-head "wanted page" sets
-(the pages a head attended that step, from the logged top-k) and simulates
-KV-cache residency under three policies, at page granularity per head:
+Replays logged top-k attention as per-step, per-head sets of wanted pages
+and simulates KV residency at page granularity:
 
 - **full**     — every seen page stays GPU-resident. Quality ceiling, memory
                  ceiling, zero misses. The reference point.
@@ -23,7 +22,7 @@ KV-cache residency under three policies, at page granularity per head:
                  variable — NOT a reimplementation of any specific paper
                  (see `simulate_reasonalloc` for that).
 
-Plus three faithful Phase-3-baseline reimplementations, each reusing this
+Plus three baseline reimplementations, each reusing this
 module's page-granular Stream where the method's own algorithm allows it,
 and a companion `page_score_stream_from_log` for the two that need
 per-page attention SCORES (not just wanted/not-wanted):
@@ -50,11 +49,10 @@ A "miss" = a wanted page that was not GPU-resident when the head needed it.
 For reactive that means a fetch-on-demand stall; for frozen it means the
 fixed classification mis-served the head; for evict it means a permanent
 quality gap with no recovery path at all. Sweeping the per-head budget B
-traces a miss-rate-vs-memory Pareto curve; the C2 claim is that reactive
-dominates frozen in shifting-role regimes (long CoT, multi-turn); the C3
-claim (reactive vs. evict, same B — no memory-matching interpolation
-needed, since both share the identical LRU cap) is that reversibility
-itself is what wins, not just dynamism.
+traces a miss-rate-versus-memory curve. At matched memory, reactive
+misses no more than frozen classification. At the same budget, reactive
+misses no more than destructive eviction on the same LRU schedule, so
+the gain is reversibility and not only the fact that the set moves.
 
 Faithful to the logged attention (not a model re-run). Pure Python + numpy.
 """
@@ -203,9 +201,8 @@ def simulate_full(stream: Stream, n_units: int) -> SimStats:
 def simulate_reactive(stream: Stream, n_units: int, budget: int) -> SimStats:
     """Per-head LRU cap of ``budget`` pages; fetch-on-demand from CPU.
 
-    Thin driver around ``ReactiveController`` — same state machine backs
-    both the simulator here and the FlexiCache monkey-patch shim in PR #8,
-    so simulator numbers and real-system numbers use identical bookkeeping.
+    Driver around ``ReactiveController``. The hardware result is the
+    FlexiCache shim, which does not call this controller.
     """
     from wakekv.reactive_controller import ReactiveController
 
@@ -231,7 +228,7 @@ def simulate_reactive(stream: Stream, n_units: int, budget: int) -> SimStats:
 
 
 def simulate_evict(stream: Stream, n_units: int, budget: int) -> SimStats:
-    """Per-head LRU cap of ``budget`` pages, DESTRUCTIVE demotion (C3).
+    """Per-head LRU cap of ``budget`` pages, with destructive demotion.
 
     Same eviction rule as ``simulate_reactive`` — LRU, same budget — so the
     two share an eviction *schedule*: what stays resident and when
@@ -249,8 +246,7 @@ def simulate_evict(stream: Stream, n_units: int, budget: int) -> SimStats:
     reservoir-vs-nothing swap with instant "recompute" on re-want would
     produce an identical miss rate to reactive, since residency-set
     evolution only depends on the LRU rule, not on eviction's
-    consequence — that would silently hide the exact effect C3 exists to
-    measure).
+    consequence — that would hide the reversibility the comparison measures).
     """
     resident: list[dict[int, int]] = [dict() for _ in range(n_units)]
     destroyed: list[set[int]] = [set() for _ in range(n_units)]
@@ -342,8 +338,8 @@ def simulate_snapkv(
     - The log's step 0 is a SINGLE query (the last prompt token attending
       over the whole prompt), not SnapKV's multi-token observation window
       -- there is no other pre-generation query in the log. This is a
-      W=1 degenerate case of the paper's pooling, not the true window;
-      flagged, not silently substituted.
+      W=1 case of the paper's pooling, not the multi-token window. The
+      appendix reports this as a declared simplification.
     - The paper's explicit 1D max-pool "clustering" kernel over raw token
       positions is replaced by this simulator's existing page-granular
       aggregation (`page_score_stream_from_log` sums attention weight
@@ -406,27 +402,19 @@ def simulate_rkv_uniform(
     keeping the highest-Z tokens (destructive, no reservoir -- the paper
     never mentions offload/recovery).
 
-    AMBIGUITY FLAG ("uniform R-KV" is this repo's name for the baseline,
-    not R-KV's): resolved by reading BOTH R-KV and ReasonAlloc
-    (arXiv:2606.11164v1) together -- R-KV itself never varies its budget
-    per head/layer (one global B_budget, applied identically everywhere);
-    ReasonAlloc's own Section 6 explicitly frames its contribution as
-    reusing R-KV's Eq. 7 score under ITS OWN adaptive per-head
-    reallocation (see `simulate_reasonalloc`). So "uniform R-KV" = R-KV
-    exactly as published: same score, ONE fixed budget shared by every
-    head, no adaptivity. This reading is well-supported, not a guess.
+    "Uniform R-KV" is the paper's name for R-KV as published: one budget
+    shared by every head. ReasonAlloc is the method that then reallocates
+    that score per head (see `simulate_reasonalloc`).
 
-    SIMPLIFICATION (a real data gap, not a judgment call): the redundancy
+    Declared simplification, as in the paper's appendix: the redundancy
     term needs raw per-token KEY VECTORS to compute cosine similarity.
     wakekv/instrument.py deliberately never logs those -- only top-k
     attention weights/indices are kept, to bound memory (see its module
-    docstring: "we never accumulate full rows"). No Phase-0 log this repo
-    has can reconstruct redundancy. This implements IMPORTANCE ONLY
-    (Eq. 4; equivalent to lambda=1 in Eq. 7) -- an honest partial
-    reimplementation of R-KV's joint score, not the full method. Not
-    silently patched with a fabricated redundancy proxy; a faithful
-    redundancy term needs a fresh instrumentation pass that also logs key
-    vectors (out of scope here -- flagged for Phase 3 planning).
+    docstring: "we never accumulate full rows"). These logs cannot
+    reconstruct redundancy. This implements importance only
+    (Eq. 4; equivalent to lambda=1 in Eq. 7), the partial reimplementation
+    reported in the paper, not the full joint score. A redundancy term
+    would need key vectors in the log.
 
     Eviction is destructive, like `simulate_evict`, but the RULE differs:
     this drops the lowest-accumulated-importance pages within a periodic
@@ -548,7 +536,7 @@ def simulate_reasonalloc(
     itself moves over time (not fixed) -- while demotion, like
     `simulate_evict`, still permanently destroys the KV it drops.
 
-    SIMPLIFICATIONS (declared, not silent):
+    Declared simplifications, as in the paper's appendix:
     - (a), the offline Reasoning-Wave layer split, needs a separate
       probe-prompt calibration pass this simulator has no access to (it
       only replays one run's own already-logged attention). We substitute
@@ -560,16 +548,11 @@ def simulate_reasonalloc(
     - the robustification pipeline is simplified; see
       `_reasonalloc_head_budgets`.
     - like `simulate_rkv_uniform`, the R-KV utility score's redundancy
-      term needs raw key vectors this repo's logs never captured (see
-      wakekv/instrument.py) -- this uses the importance term only, same
-      flagged gap, propagated from R-KV since ReasonAlloc reuses it
-      verbatim.
-
-    Confidence: MEDIUM-HIGH on the online head-wise mechanism (read
-    directly from Section 5.3/Algorithm 1); LOW/not-attempted on the
-    offline layer split (substituted with a flat default rather than
-    forced). The substitution is declared here rather than presented as
-    the paper's Reasoning-Wave allocation.
+      term needs raw key vectors these logs never captured (see
+      wakekv/instrument.py) -- this uses the importance term only,
+      the same omission as uniform R-KV, since ReasonAlloc reuses it
+      verbatim. The equal split is not the paper's Reasoning-Wave
+      allocation.
     """
     if n_heads <= 0 or n_units % n_heads != 0:
         raise ValueError(f"n_units ({n_units}) must be a multiple of n_heads ({n_heads})")
@@ -632,7 +615,7 @@ def sweep(
 ) -> list[SimStats]:
     """Full once, plus reactive, evict, and frozen at each budget. When
     `scored_stream` (see `page_score_stream_from_log`) is also supplied,
-    additionally runs the three Phase-3 baseline reimplementations that
+    additionally runs the three baseline reimplementations that
     need per-page attention SCORES, not just wanted/not-wanted sets:
     snapkv, rkv_uniform, and (if `n_heads` is known too) reasonalloc.
     Skipped when scores aren't available -- e.g. the synthetic page-only

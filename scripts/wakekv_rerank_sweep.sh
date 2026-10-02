@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# M2b-2: WakeKV reactive rerank-interval sweep vs stock FlexiCache.
+# Throughput of WakeKV reactive residency versus stock FlexiCache,
+# sweeping the rerank interval. Interval 1 is the paper's design point.
 #
 # Runs FlexiCache's real throughput benchmark (benchmarks/benchmark_throughput.py)
 # through the WakeKV shim at several rerank intervals, plus a stock-FlexiCache
@@ -53,7 +54,7 @@ MODEL="mistralai/Mistral-7B-Instruct-v0.2"
 BENCH_DIR="$FLEXI_ROOT/benchmarks/FlexiCache/Throughput"   # cwd for relative dataset path
 BENCH="../../benchmark_throughput.py"                       # -> benchmarks/benchmark_throughput.py
 DATASET="Prompts/prompts-Mistral-7B-Instruct-v0.2.json"
-OUT_DIR="$BENCH_DIR/Results_M2b2"
+OUT_DIR="$BENCH_DIR/wakekv_sweep"
 mkdir -p "$OUT_DIR"
 cd "$BENCH_DIR"
 

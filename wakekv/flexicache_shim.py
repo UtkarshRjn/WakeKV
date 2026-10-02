@@ -1,11 +1,11 @@
-"""FlexiCache → WakeKV monkey-patch shim (Phase 2b / M2b-1b).
+"""FlexiCache to WakeKV shim.
 
 WakeKV reactive residency turns out to be **FlexiCache with two knobs
 changed**. FlexiCache already provides everything we need:
 - sparse decode over top-B pages per head (their Triton kernel),
 - MinMax-scored promote via ``GPUModelRunner.reload_kv_cache_h2d`` and
   demote via ``KVCacheManager.free_pages_decode_phase``,
-- a step gate on ``num_decode_step % rerank_frequency == 0``.
+- a rerank when ``num_decode_step % rerank_frequency == 0``.
 
 WakeKV reactive is: ``unstable_heads = []`` (every head goes through the
 top-B + reservoir path, none is "keep-everything-resident") and
@@ -107,7 +107,8 @@ def install(mode: str = "reactive", rerank_interval: int = 1) -> None:
           is kept fully resident; every head takes the sparse top-B path.
           ``rerank_frequency`` is set to ``rerank_interval``.
         - ``"identity"``: pass-through — keeps whatever FlexiCache loaded.
-          Used for the M2b-1b correctness check.
+          A pass-through used to check that the patch itself does not
+          change FlexiCache's output.
         - ``"off"`` / ``"uninstall"``: remove the patch.
     rerank_interval
         Value forced into ``FlexiCacheConfig.rerank_frequency`` in

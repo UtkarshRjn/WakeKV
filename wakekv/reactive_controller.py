@@ -1,64 +1,28 @@
-"""Standalone reactive-residency controller (Phase 2b/M2b-1a).
+"""Reactive residency controller.
 
-Per-(layer, head) unit bookkeeping of GPU-resident vs CPU-reservoir pages.
-Extracted from ``wakekv/residency.simulate_reactive`` so the same state
-machine drives the Phase-2a simulator AND the Phase-2b FlexiCache
-monkey-patch shim (PR #8). Same code path → simulator numbers and real-
-system numbers are directly comparable, not a-similar-policy-reimplemented.
+Per-(layer, head) bookkeeping of a GPU-resident working set and a CPU
+reservoir. WakeKV's rule: each head keeps an LRU set capped at budget B;
+a page past that budget is copied to the reservoir and fetched back when
+a later step wants it.
 
-Two entry points, one shared state:
+``on_unit_lru`` is what the simulator calls. The caller passes the pages
+attended at this decode step. ``on_unit_explicit`` diffs a caller-chosen
+resident set, such as FlexiCache's top-B by MinMax score. The
+FlexiCache/vLLM deployment does not call either one. It clears
+``unstable_heads`` and sets ``rerank_frequency``, and FlexiCache's own
+promote and demote code moves the pages. ``on_unit_explicit`` supports
+reversible offload only.
 
-- ``on_unit_lru(unit, wanted_pages)`` — caller passes the pages a unit
-  actually wanted this step (e.g. the logged top-k for a decode step).
-  The controller LRU-caps the resident set at ``budget`` and counts
-  fetch-on-demand for any wanted page currently on CPU. This is what the
-  simulator uses. Supports both demotion modes (see below).
+``rerank_interval`` leaves residency unchanged between reranks, matching
+FlexiCache's periodic refresh. Interval 1 is WakeKV's design point.
+Interval 16 is FlexiCache's native cadence.
 
-- ``on_unit_explicit(unit, desired_set)`` — caller passes the exact set
-  that should be resident after this step (e.g. top-B by MinMax score in
-  FlexiCache). The controller diffs desired vs. current resident and
-  reports fetches / evictions. This is what the real FlexiCache shim is
-  DESIGNED to use, but as of PR #8 the shim (``wakekv/flexicache_shim.py``)
-  doesn't actually call it — it only overrides FlexiCache's config
-  (``unstable_heads``, ``rerank_frequency``) and lets FlexiCache's own
-  native promote/demote code do the work. ``on_unit_explicit`` only
-  supports reversible (``"offload"``) demotion; it's a currently-unused
-  entry point kept for a from-scratch (non-FlexiCache-native) engine.
-
-Both interfaces share ``rerank_interval``: on non-rerank steps residency
-is left untouched, matching FlexiCache's periodic-refresh behavior. With
-``rerank_interval=1`` you get the fully reactive WakeKV design; with
-``rerank_interval=16`` you get FlexiCache's default cadence — one knob
-spans both policies.
-
-Demotion mode (``demotion`` constructor arg, ``on_unit_lru`` only):
-
-- ``"offload"`` (default) — WakeKV. A demoted page moves to a CPU
-  reservoir; re-wanting it is one recoverable stall (fetch + miss), then
-  it's resident again.
-- ``"evict"`` — ReasonAlloc-style (Phase 3, E3c/C3's real-system foil).
-  A demoted page is destroyed, not reserved: it's added to a permanent
-  ``_destroyed`` set (mirrors ``wakekv.residency.simulate_evict`` exactly
-  — see that function's docstring for why re-admission after the first
-  destruction can't be free, or the miss RATE wouldn't diverge from
-  offload's at all). Re-wanting a destroyed page misses on *every* want
-  forever; nothing brings it back.
-
-**Real-system wiring for "evict" mode is NOT done.** Unlike "reactive"
-mode (a 2-config-value override that reuses FlexiCache's own reversible
-promote/demote code for free), a real evict/destructive mode needs
-FlexiCache's actual demotion mechanism (wherever
-``KVCacheManager.free_pages_decode_phase``'s freed block becomes
-reusable/fetchable) to be patched so a freed block is NOT
-recoverable — that requires reading FlexiCache's source directly (not
-vendored into this repo) to find the right hook point, which hasn't been
-done. This class's "evict" mode is ready and tested for whatever driver
-calls ``on_unit_lru`` (the Phase 2a simulator today); wiring a real E3c
-head-to-head into the vLLM/FlexiCache shim is the concrete next step,
-scoped to: (1) inspect FlexiCache's reservoir/block-reuse code on the
-target host, (2) either patch it directly or replace it with a call into
-this controller's ``on_unit_lru``/``on_unit_explicit`` (whichever
-FlexiCache's real hot path can accommodate).
+``demotion="offload"`` (default) is WakeKV. ``demotion="evict"`` is the
+destructive foil on the same LRU schedule: a demoted page is destroyed,
+and every later want of it is a miss. Re-admitting it for free would make
+the miss rate identical to offload and hide reversibility. The hardware
+shim does not implement that foil. Comparing reversible and destructive
+eviction on a real system, scored by stall time, is left open.
 
 No GPU, no vLLM dependency. Pure Python.
 """

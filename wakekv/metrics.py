@@ -1,4 +1,4 @@
-"""Pure-numpy metrics for head-churn analysis (Phase 0).
+"""Head-churn metrics: adjacent Jaccard, RCO, and drift events.
 
 Definitions follow the source papers exactly:
 - adjacent-step Jaccard, activation entropy: "Retrieval Heads are Dynamic"
