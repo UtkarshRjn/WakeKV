@@ -159,10 +159,10 @@ detect_python() {
 
 # System scripts need a FlexiCache checkout. There is no default path:
 # the paper's A30 runs used one lab machine, and that commit was not
-# recorded here. Pass the repo root as $1 (the caller's SCRIPT_DIR).
+# recorded here. Pass the repo root as $1.
 require_flexicache_checkout() {
-  local script_dir="$1"
-  WAKEKV_ROOT="${WAKEKV_ROOT:-$(cd "$script_dir/.." && pwd)}"
+  local repo_root="$1"
+  WAKEKV_ROOT="${WAKEKV_ROOT:-$(cd "$repo_root" && pwd)}"
   export WAKEKV_ROOT
   if [ -z "${FLEXI_ROOT:-}" ] || [ ! -d "$FLEXI_ROOT" ]; then
     echo "Set FLEXI_ROOT to a FlexiCache checkout (https://github.com/NazmulTakbir/FlexiCache)." >&2

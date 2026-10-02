@@ -12,7 +12,7 @@ a per-task F1/Rouge column so quality preservation is visible next to
 throughput.
 
 Usage:
-    python scripts/wakekv_sweep_table.py <throughput_dir> [--quality-dir DIR]
+    python scripts/system/wakekv_sweep_table.py <throughput_dir> [--quality-dir DIR]
 """
 
 from __future__ import annotations

@@ -15,7 +15,7 @@
 # is actually attached (see wakekv_gpu_lib.sh); an explicit env var still
 # takes precedence if you set one.
 #
-# Usage:  bash scripts/wakekv_longbench_check.sh
+# Usage:  bash scripts/system/wakekv_longbench_check.sh
 # Env:    WAKEKV_ROOT, FLEXI_ROOT, LONGBENCH_TASKS, SAMPLES_PER_TASK,
 #         RERANK_INTERVAL, BATCH_SIZE, WAKEKV_MAX_MODEL_LEN,
 #         TORCH_CUDA_ARCH_LIST, CONDA_SH (both auto-detected if unset --
@@ -25,7 +25,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/wakekv_gpu_lib.sh"
 
-require_flexicache_checkout "$SCRIPT_DIR"
+require_flexicache_checkout "$(cd "$SCRIPT_DIR/../.." && pwd)"
 LONGBENCH_TASKS="${LONGBENCH_TASKS:-qasper 2wikimqa triviaqa multi_news}"
 SAMPLES_PER_TASK="${SAMPLES_PER_TASK:-30}"
 RERANK_INTERVAL="${RERANK_INTERVAL:-1}"
@@ -75,7 +75,7 @@ echo "==== $(date) STOCK FlexiCache (unstable=64, rerank=$STOCK_R) ===="
 python $(bench_cmd "$STOCK_R")
 
 echo "==== $(date) REACTIVE (shim: unstable=0, rerank=$REACT_R) ===="
-python "$WAKEKV_ROOT/scripts/run_wakekv.py" --mode reactive --rerank-interval "$REACT_R" -- \
+python "$SCRIPT_DIR/run_wakekv.py" --mode reactive --rerank-interval "$REACT_R" -- \
     python $(bench_cmd "$REACT_R")
 
 echo "==== $(date) scoring (eval.py) ===="
@@ -96,6 +96,6 @@ print("wrote wakekv-longbench-stock.json and wakekv-longbench-reactive-r%s.json"
 PY
 
 echo "==== quality check done $(date) ===="
-python "$WAKEKV_ROOT/scripts/wakekv_sweep_table.py" \
+python "$SCRIPT_DIR/wakekv_sweep_table.py" \
        "$FLEXI_ROOT/benchmarks/FlexiCache/Throughput/wakekv_sweep" \
        --quality-dir "$OUT_DIR" || true

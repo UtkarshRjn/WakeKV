@@ -1,4 +1,4 @@
-"""Tests for scripts/run_wakekv.py and wakekv._shimmed_main.
+"""Tests for scripts/system/run_wakekv.py and wakekv._shimmed_main.
 
 These cover the argv-rewriting that routes the target through the in-process
 bootstrap (the fix for the execvp-drops-the-shim bug). The real end-to-end
@@ -14,11 +14,13 @@ import sys
 
 import pytest
 
-_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+_SCRIPTS = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "system"
+)
 
 
 def _load_run_wakekv():
-    """Import scripts/run_wakekv.py as a module (it's a script, not a package)."""
+    """Import scripts/system/run_wakekv.py as a module (it's a script, not a package)."""
     path = os.path.join(_SCRIPTS, "run_wakekv.py")
     spec = importlib.util.spec_from_file_location("run_wakekv", path)
     mod = importlib.util.module_from_spec(spec)

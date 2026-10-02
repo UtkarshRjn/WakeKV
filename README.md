@@ -35,17 +35,10 @@ FlexiCache while holding LongBench quality.
 | Path | Role |
 |---|---|
 | `wakekv/` | Churn metrics, wake-up signals, the residency simulator, and the FlexiCache/vLLM shim |
-| `scripts/log_attention.py` | Log top-k attention during decoding |
-| `scripts/analyze_churn.py` | Head-churn report from those logs |
-| `scripts/analyze_wakeups.py` | Wake-up prediction study (no extra GPU time) |
-| `scripts/simulate_residency.py` | Miss rate for reactive, frozen, evict, SnapKV, R-KV, and ReasonAlloc |
-| `scripts/analyze_clustering.py` | Whether wake-ups bunch in time |
+| `scripts/fetch_logs.sh` | Download the published attention logs into `runs/` |
 | `scripts/reproduce_paper.sh` | The paper's five model/regime combinations |
-| `scripts/run_wakekv.py` | Run a FlexiCache/vLLM command with the WakeKV shim installed |
-| `scripts/wakekv_rerank_sweep.sh` | Throughput sweep on a FlexiCache checkout |
-| `scripts/wakekv_longbench_check.sh` | LongBench quality at one rerank interval |
-| `scripts/wakekv_quality_pareto.sh` | LongBench quality at every rerank interval |
-| `scripts/wakekv_sweep_table.py` | Markdown table from those sweep JSONs |
+| `scripts/attention/` | Log top-k attention, then churn, wake-up, clustering, and residency reports |
+| `scripts/system/` | FlexiCache/vLLM shim, throughput sweep, and LongBench quality |
 | `tests/` | CPU unit tests |
 
 Logs and plots stay local. `runs/` and `figures/` are gitignored.
@@ -106,15 +99,15 @@ analyze stage skips it unless
 ## Head churn
 
 ```bash
-python scripts/log_attention.py --model Qwen/Qwen2.5-3B-Instruct \
+python scripts/attention/log_attention.py --model Qwen/Qwen2.5-3B-Instruct \
     --task niah --context-tokens 5000 --depths 0.25 0.5 0.75 --seeds 0 1 2
 
-python scripts/log_attention.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
+python scripts/attention/log_attention.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
     --task cot --max-new-tokens 2048 --dtype float32
 
-python scripts/log_attention.py --model Qwen/Qwen2.5-3B-Instruct --task multiturn
+python scripts/attention/log_attention.py --model Qwen/Qwen2.5-3B-Instruct --task multiturn
 
-python scripts/analyze_churn.py runs/Qwen__Qwen2.5-3B-Instruct/niah
+python scripts/attention/analyze_churn.py runs/Qwen__Qwen2.5-3B-Instruct/niah
 ```
 
 ## Wake-up prediction
@@ -123,9 +116,9 @@ Reads the attention logs. Override the PCIe and step-time defaults with
 measured values.
 
 ```bash
-python scripts/analyze_wakeups.py runs/Qwen__Qwen2.5-3B-Instruct/niah \
+python scripts/attention/analyze_wakeups.py runs/Qwen__Qwen2.5-3B-Instruct/niah \
     --pcie-gbps 21 --decode-step-ms 30
-bash scripts/analyze_wakeups_all.sh
+bash scripts/attention/analyze_wakeups_all.sh
 ```
 
 The combined prediction report is `runs/signal_study_all.md`.
@@ -135,8 +128,8 @@ The combined prediction report is `runs/signal_study_all.md`.
 Replays logged attention. No GPU.
 
 ```bash
-python scripts/simulate_residency.py runs/Qwen__Qwen2.5-3B-Instruct/niah
-bash scripts/wakekv_simulate_residency_all.sh
+python scripts/attention/simulate_residency.py runs/Qwen__Qwen2.5-3B-Instruct/niah
+bash scripts/attention/wakekv_simulate_residency_all.sh
 ```
 
 Per-task reports land in `runs/<model>/<task>/residency.md`. The combined
@@ -160,8 +153,8 @@ bash scripts/reproduce_paper.sh analyze   # CPU, after logs exist
 ```
 
 ```bash
-python scripts/make_figures.py heatmap runs/Qwen__Qwen2.5-3B-Instruct/niah
-python scripts/make_figures.py pareto \
+python scripts/attention/make_figures.py heatmap runs/Qwen__Qwen2.5-3B-Instruct/niah
+python scripts/attention/make_figures.py pareto \
     runs/Qwen__Qwen2.5-3B-Instruct/niah \
     runs/deepseek-ai__DeepSeek-R1-Distill-Qwen-1.5B/cot
 ```
@@ -179,9 +172,9 @@ head on FlexiCache's sparse top-B path, and sets the rerank interval.
 ```bash
 export FLEXI_ROOT=/path/to/FlexiCache
 bash scripts/reproduce_paper.sh system
-python scripts/wakekv_sweep_table.py "$FLEXI_ROOT/benchmarks/FlexiCache/Throughput/wakekv_sweep"
+python scripts/system/wakekv_sweep_table.py "$FLEXI_ROOT/benchmarks/FlexiCache/Throughput/wakekv_sweep"
 
-python scripts/run_wakekv.py --mode reactive --rerank-interval 1 -- \
+python scripts/system/run_wakekv.py --mode reactive --rerank-interval 1 -- \
     python -m vllm.entrypoints.openai.api_server \
     --model mistralai/Mistral-7B-Instruct-v0.2 \
     --enable-flexicache --num-unstable-heads 64 --topK-budget 64 \

@@ -9,7 +9,7 @@ miss rate against memory. At matched memory, does reactive miss no more
 than frozen? At the same budget, does it miss no more than destructive
 eviction, and no more than the three baselines at matched memory?
 
-  python scripts/simulate_residency.py runs/<model>/<task> \
+  python scripts/attention/simulate_residency.py runs/<model>/<task> \
       [--budgets 8 16 32 64] [--page-size 16] [--unstable-frac 0.25] [--refresh 16]
       [--rkv-buffer 128] [--reasonalloc-delta 128] [--reasonalloc-mu 0.25]
 
@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wakekv.residency import page_score_stream_from_log, sweep, wanted_stream_from_log
 

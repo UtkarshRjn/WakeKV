@@ -10,7 +10,7 @@
 # just walks runs/<model>/<task>/ for you and invokes it once per combo
 # found. No GPU needed (same as simulate_residency.py itself).
 #
-# Usage:  bash scripts/wakekv_simulate_residency_all.sh [RUNS_ROOT]
+# Usage:  bash scripts/attention/wakekv_simulate_residency_all.sh [RUNS_ROOT]
 # Env:    RUNS_ROOT (default "runs")
 #         PYTHON    (default: first of python/python3/$CONDA_ENV that has
 #                    numpy -- see detect_python in wakekv_gpu_lib.sh)
@@ -21,8 +21,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/wakekv_gpu_lib.sh"
-WAKEKV_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/../system/wakekv_gpu_lib.sh"
+WAKEKV_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # Resolve the interpreter ONCE, up front: this script is pure analysis (numpy
 # only, no GPU), but "python" is not a command on every host, and finding that
 # out per-task-dir would half-write the combined report before failing.
@@ -54,7 +54,7 @@ for task_dir in "$RUNS_ROOT"/*/*/; do
     echo "=================================================================="
     echo ">>> $(date) | $rel"
     echo "=================================================================="
-    if "$PYTHON_BIN" "$WAKEKV_ROOT/scripts/simulate_residency.py" "$task_dir"; then
+    if "$PYTHON_BIN" "$SCRIPT_DIR/simulate_residency.py" "$task_dir"; then
         {
             echo ""
             echo "<!-- ============ $rel ============ -->"

@@ -2,13 +2,13 @@
 """Log top-k attention during decoding, for head-churn measurement.
 
 Examples:
-  python scripts/log_attention.py --model Qwen/Qwen2.5-3B-Instruct \
+  python scripts/attention/log_attention.py --model Qwen/Qwen2.5-3B-Instruct \
       --task niah --context-tokens 5000 --depths 0.25 0.5 0.75 --seeds 0 1 2
 
-  python scripts/log_attention.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
+  python scripts/attention/log_attention.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
       --task cot --max-new-tokens 2048 --limit 5 --dtype float32
 
-  python scripts/log_attention.py --model Qwen/Qwen2.5-3B-Instruct --task multiturn
+  python scripts/attention/log_attention.py --model Qwen/Qwen2.5-3B-Instruct --task multiturn
 
 Requires a CUDA GPU. Models are loaded with attn_implementation="eager"
 (required to materialize attention weights).
@@ -20,7 +20,7 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer

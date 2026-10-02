@@ -19,7 +19,7 @@ Examples
 --------
 Reactive, rerank every step, one benchmark run::
 
-    python scripts/run_wakekv.py --mode reactive --rerank-interval 1 -- \\
+    python scripts/system/run_wakekv.py --mode reactive --rerank-interval 1 -- \\
         python -m vllm.entrypoints.openai.api_server \\
         --model mistralai/Mistral-7B-Instruct-v0.2 \\
         --enable-flexicache --num-unstable-heads 64 --topK-budget 64 \\
@@ -27,7 +27,7 @@ Reactive, rerank every step, one benchmark run::
 
 Identity mode (correctness sanity check --- should match stock FlexiCache)::
 
-    python scripts/run_wakekv.py --mode identity -- \\
+    python scripts/system/run_wakekv.py --mode identity -- \\
         python benchmarks/benchmark_throughput.py <args>
 
 The target command must start with a Python interpreter (``python`` /

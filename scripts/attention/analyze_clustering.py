@@ -15,7 +15,7 @@ counts) and max simultaneous co-wake are reported as supporting evidence.
 
 Pure numpy on logged attention. No GPU.
 
-  python scripts/analyze_clustering.py runs/<model>/<task>
+  python scripts/attention/analyze_clustering.py runs/<model>/<task>
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wakekv.signals import wake_events
 
