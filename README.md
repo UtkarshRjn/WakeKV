@@ -68,6 +68,41 @@ On pre-Ampere GPUs, pass `--dtype float32` for bf16-native models such as
 `DeepSeek-R1-Distill-*`. `--dtype auto` falls back to fp16, and those models
 overflow to NaN in fp16.
 
+## Attention logs
+
+`runs/` is gitignored, so a clone does not include them. The paper's
+attention logs are the GitHub release
+[attention-logs-v1](https://github.com/UtkarshRjn/dynamic-head-kv/releases/tag/attention-logs-v1):
+20 `log.npz` files, each with a `meta.json` beside it. Derived reports are
+not in the archive; the analyze stage writes them.
+
+```bash
+bash scripts/fetch_logs.sh
+```
+
+The script checks the archive sha256 and unpacks into `runs/`. It does
+nothing when that tree is already present, unless you pass `--force`.
+The layout is:
+
+| Directory | Runs |
+|---|---|
+| `runs/Qwen__Qwen2.5-3B-Instruct/niah/` | depths 0.25, 0.50, 0.75 × seeds 0, 1, 2 |
+| `runs/Qwen__Qwen2.5-3B-Instruct/multiturn/recall/` | one multi-turn recall |
+| `runs/deepseek-ai__DeepSeek-R1-Distill-Qwen-1.5B/cot/` | `math500-0` … `math500-4` |
+| `runs/deepseek-ai__DeepSeek-R1-Distill-Llama-8B/cot/` | `math500-0` … `math500-4` |
+
+`log.npz` holds top-k indices and weights, context length, generated token
+ids, needle score, and the copy-paste mask. No GPU is required to read them.
+
+```bash
+bash scripts/reproduce_paper.sh analyze
+```
+
+That writes `summary.md`, `signal_study.md`, `clustering.md`, and
+`residency.md` next to each task. Mistral-7B/NIAH is not in this tree. The
+analyze stage skips it unless
+`runs/mistralai__Mistral-7B-Instruct-v0.2/niah/` contains a `log.npz`.
+
 ## Head churn
 
 ```bash
