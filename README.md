@@ -35,9 +35,9 @@ FlexiCache while holding LongBench quality.
 | Path | Role |
 |---|---|
 | `wakekv/` | Churn metrics, wake-up signals, the residency simulator, and the FlexiCache/vLLM shim |
-| `scripts/run_phase0.py` | Log top-k attention during decoding |
-| `scripts/analyze_phase0.py` | Head-churn report from those logs |
-| `scripts/analyze_phase1.py` | Wake-up prediction study (no extra GPU time) |
+| `scripts/log_attention.py` | Log top-k attention during decoding |
+| `scripts/analyze_churn.py` | Head-churn report from those logs |
+| `scripts/analyze_wakeups.py` | Wake-up prediction study (no extra GPU time) |
 | `scripts/simulate_residency.py` | Miss rate for reactive, frozen, evict, SnapKV, R-KV, and ReasonAlloc |
 | `scripts/analyze_clustering.py` | Whether wake-ups bunch in time |
 | `scripts/reproduce_paper.sh` | The paper's five model/regime combinations |
@@ -71,15 +71,15 @@ overflow to NaN in fp16.
 ## Head churn
 
 ```bash
-python scripts/run_phase0.py --model Qwen/Qwen2.5-3B-Instruct \
+python scripts/log_attention.py --model Qwen/Qwen2.5-3B-Instruct \
     --task niah --context-tokens 5000 --depths 0.25 0.5 0.75 --seeds 0 1 2
 
-python scripts/run_phase0.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
+python scripts/log_attention.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
     --task cot --max-new-tokens 2048 --dtype float32
 
-python scripts/run_phase0.py --model Qwen/Qwen2.5-3B-Instruct --task multiturn
+python scripts/log_attention.py --model Qwen/Qwen2.5-3B-Instruct --task multiturn
 
-python scripts/analyze_phase0.py runs/Qwen__Qwen2.5-3B-Instruct/niah
+python scripts/analyze_churn.py runs/Qwen__Qwen2.5-3B-Instruct/niah
 ```
 
 ## Wake-up prediction
@@ -88,9 +88,9 @@ Reads the attention logs. Override the PCIe and step-time defaults with
 measured values.
 
 ```bash
-python scripts/analyze_phase1.py runs/Qwen__Qwen2.5-3B-Instruct/niah \
+python scripts/analyze_wakeups.py runs/Qwen__Qwen2.5-3B-Instruct/niah \
     --pcie-gbps 21 --decode-step-ms 30
-bash scripts/wakekv_analyze_all_phase1.sh
+bash scripts/analyze_wakeups_all.sh
 ```
 
 The combined prediction report is `runs/signal_study_all.md`.

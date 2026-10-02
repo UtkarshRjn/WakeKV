@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Head-churn report from logged attention.
 
-  python scripts/analyze_phase0.py runs/<model>/<task> [--page-size 16] \
+  python scripts/analyze_churn.py runs/<model>/<task> [--page-size 16] \
       [--score-thresholds 0.1 0.2 0.3]
 
 Produces per-run and aggregate statistics:

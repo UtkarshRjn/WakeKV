@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Wake-up prediction report from logged attention.
 
-  python scripts/analyze_phase1.py runs/<model>/<task> \
+  python scripts/analyze_wakeups.py runs/<model>/<task> \
       [--page-size 16] [--pcie-gbps 21] [--decode-step-ms 30]
 
 For every run with needle scores, extracts per-head wake-up events and

@@ -36,7 +36,7 @@ log_one() {
   echo "=================================================================="
   echo ">>> $(date) | $*"
   echo "=================================================================="
-  "$PY" scripts/run_phase0.py "$@"
+  "$PY" scripts/log_attention.py "$@"
 }
 
 stage_log() {
@@ -58,8 +58,8 @@ analyze_one() {
     echo "missing $task_dir (run the log stage first)" >&2
     exit 1
   fi
-  "$PY" scripts/analyze_phase0.py "$task_dir"
-  "$PY" scripts/analyze_phase1.py "$task_dir"
+  "$PY" scripts/analyze_churn.py "$task_dir"
+  "$PY" scripts/analyze_wakeups.py "$task_dir"
   "$PY" scripts/analyze_clustering.py "$task_dir"
   "$PY" scripts/simulate_residency.py "$task_dir" "$@"
 }

@@ -2,13 +2,13 @@
 """Log top-k attention during decoding, for head-churn measurement.
 
 Examples:
-  python scripts/run_phase0.py --model Qwen/Qwen2.5-3B-Instruct \
+  python scripts/log_attention.py --model Qwen/Qwen2.5-3B-Instruct \
       --task niah --context-tokens 5000 --depths 0.25 0.5 0.75 --seeds 0 1 2
 
-  python scripts/run_phase0.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
+  python scripts/log_attention.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
       --task cot --max-new-tokens 2048 --limit 5 --dtype float32
 
-  python scripts/run_phase0.py --model Qwen/Qwen2.5-3B-Instruct --task multiturn
+  python scripts/log_attention.py --model Qwen/Qwen2.5-3B-Instruct --task multiturn
 
 Requires a CUDA GPU. Models are loaded with attn_implementation="eager"
 (required to materialize attention weights).
@@ -54,7 +54,7 @@ def main() -> None:
         dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     else:
         dtype = getattr(torch, args.dtype)
-    print(f"[phase0] using dtype={dtype}", flush=True)
+    print(f"[attention] using dtype={dtype}", flush=True)
 
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     model = AutoModelForCausalLM.from_pretrained(
@@ -84,7 +84,7 @@ def main() -> None:
         jobs.append(("recall", build_multiturn_prompt(tokenizer)))
 
     for name, spec in jobs:
-        print(f"[phase0] {args.task}/{name} ...", flush=True)
+        print(f"[attention] {args.task}/{name} ...", flush=True)
         log = run_instrumented_generation(
             model,
             tokenizer,
