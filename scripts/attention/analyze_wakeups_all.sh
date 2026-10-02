@@ -8,14 +8,14 @@
 # run/seed *within* that directory into one report) — this script just walks
 # runs/<model>/<task>/ for you and invokes it once per combo found.
 #
-# Usage:  bash scripts/analyze_wakeups_all.sh [RUNS_ROOT]
+# Usage:  bash scripts/attention/analyze_wakeups_all.sh [RUNS_ROOT]
 # Env:    RUNS_ROOT (default "runs")
 # Output: <task_dir>/signal_study.md written by analyze_wakeups.py, plus a
 #         combined runs/signal_study_all.md concatenating every report.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WAKEKV_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+WAKEKV_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNS_ROOT="${1:-$WAKEKV_ROOT/runs}"
 OUT_SUMMARY="$RUNS_ROOT/signal_study_all.md"
 
@@ -43,7 +43,7 @@ for task_dir in "$RUNS_ROOT"/*/*/; do
     echo "=================================================================="
     echo ">>> $(date) | $rel"
     echo "=================================================================="
-    if python "$WAKEKV_ROOT/scripts/analyze_wakeups.py" "$task_dir"; then
+    if python "$SCRIPT_DIR/analyze_wakeups.py" "$task_dir"; then
         {
             echo ""
             echo "<!-- ============ $rel ============ -->"

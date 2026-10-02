@@ -18,7 +18,7 @@
 # card's memory (H100: 80GB vs A30's 24GB) instead of reproducing A30
 # exactly.
 #
-# Usage:  bash scripts/wakekv_quality_pareto.sh
+# Usage:  bash scripts/system/wakekv_quality_pareto.sh
 # Env:    INTERVALS (default "1 2 4 8 16"), LONGBENCH_TASKS, SAMPLES_PER_TASK,
 #         BATCH_SIZE, WAKEKV_MAX_MODEL_LEN, WAKEKV_ROOT, FLEXI_ROOT,
 #         TORCH_CUDA_ARCH_LIST, CONDA_SH (both auto-detected if unset --
@@ -28,7 +28,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/wakekv_gpu_lib.sh"
 
-require_flexicache_checkout "$SCRIPT_DIR"
+require_flexicache_checkout "$(cd "$SCRIPT_DIR/../.." && pwd)"
 INTERVALS="${INTERVALS:-1 2 4 8 16}"
 LONGBENCH_TASKS="${LONGBENCH_TASKS:-qasper 2wikimqa triviaqa multi_news}"
 SAMPLES_PER_TASK="${SAMPLES_PER_TASK:-30}"
@@ -77,7 +77,7 @@ run_isolated() {   # $1 = rerank, $2 = mode(off|reactive), $3 = out label
     if [ "$mode" = "off" ]; then
         python "${args[@]}" || { echo "!!! GEN FAILED $label"; return 0; }
     else
-        python "$WAKEKV_ROOT/scripts/run_wakekv.py" --mode reactive --rerank-interval "$R" -- \
+        python "$SCRIPT_DIR/run_wakekv.py" --mode reactive --rerank-interval "$R" -- \
             python "${args[@]}" || { echo "!!! GEN FAILED $label"; return 0; }
     fi
     python eval.py
@@ -117,6 +117,6 @@ for R in $INTERVALS; do
 done
 
 echo "==== quality pareto done $(date) ===="
-python "$WAKEKV_ROOT/scripts/wakekv_sweep_table.py" \
+python "$SCRIPT_DIR/wakekv_sweep_table.py" \
        "$FLEXI_ROOT/benchmarks/FlexiCache/Throughput/wakekv_sweep" \
        --quality-dir "$OUT_DIR" || true

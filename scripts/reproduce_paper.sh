@@ -37,7 +37,7 @@ log_one() {
   echo "=================================================================="
   echo ">>> $(date) | $*"
   echo "=================================================================="
-  "$PY" scripts/log_attention.py "$@"
+  "$PY" scripts/attention/log_attention.py "$@"
 }
 
 stage_log() {
@@ -59,10 +59,10 @@ analyze_one() {
     echo "missing $task_dir (run the log stage first)" >&2
     exit 1
   fi
-  "$PY" scripts/analyze_churn.py "$task_dir"
-  "$PY" scripts/analyze_wakeups.py "$task_dir"
-  "$PY" scripts/analyze_clustering.py "$task_dir"
-  "$PY" scripts/simulate_residency.py "$task_dir" "$@"
+  "$PY" scripts/attention/analyze_churn.py "$task_dir"
+  "$PY" scripts/attention/analyze_wakeups.py "$task_dir"
+  "$PY" scripts/attention/analyze_clustering.py "$task_dir"
+  "$PY" scripts/attention/simulate_residency.py "$task_dir" "$@"
 }
 
 stage_analyze() {
@@ -88,11 +88,11 @@ stage_analyze() {
 
 stage_system() {
   # shellcheck disable=SC1091
-  source "$SCRIPT_DIR/wakekv_gpu_lib.sh"
-  require_flexicache_checkout "$SCRIPT_DIR"
-  bash "$SCRIPT_DIR/wakekv_rerank_sweep.sh"
-  bash "$SCRIPT_DIR/wakekv_longbench_check.sh"
-  bash "$SCRIPT_DIR/wakekv_quality_pareto.sh"
+  source "$SCRIPT_DIR/system/wakekv_gpu_lib.sh"
+  require_flexicache_checkout "$ROOT"
+  bash "$SCRIPT_DIR/system/wakekv_rerank_sweep.sh"
+  bash "$SCRIPT_DIR/system/wakekv_longbench_check.sh"
+  bash "$SCRIPT_DIR/system/wakekv_quality_pareto.sh"
 }
 
 usage() {

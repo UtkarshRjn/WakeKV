@@ -1,6 +1,6 @@
 """In-process bootstrap: install the WakeKV shim, then run the real target.
 
-Invoked by ``scripts/run_wakekv.py`` as::
+Invoked by ``scripts/system/run_wakekv.py`` as::
 
     python -m wakekv._shimmed_main <script.py | -m module> [args...]
 

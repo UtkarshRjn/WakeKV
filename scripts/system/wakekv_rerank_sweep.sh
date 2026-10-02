@@ -5,7 +5,7 @@
 # Runs FlexiCache's real throughput benchmark (benchmarks/benchmark_throughput.py)
 # through the WakeKV shim at several rerank intervals, plus a stock-FlexiCache
 # baseline, and collects throughput JSONs. The shim is applied via
-# scripts/run_wakekv.py, which installs it INSIDE the benchmark's interpreter
+# scripts/system/run_wakekv.py, which installs it INSIDE the benchmark's interpreter
 # (see wakekv/_shimmed_main.py) so it is live when vLLM initializes.
 #
 # Scaled for A30 (24GB): input 8k, 24 prompts, output 1000 (the regime where
@@ -21,7 +21,7 @@
 # want to push a bigger card (H100: 80GB vs A30's 24GB) closer to its
 # own ceiling instead of reproducing A30's.
 #
-# Usage:  bash scripts/wakekv_rerank_sweep.sh
+# Usage:  bash scripts/system/wakekv_rerank_sweep.sh
 # Env:    WAKEKV_ROOT, FLEXI_ROOT, INTERVALS, OUTPUT_LEN, NUM_PROMPTS, INPUT_LEN,
 #         TORCH_CUDA_ARCH_LIST, CONDA_SH (both auto-detected if unset --
 #         see wakekv_gpu_lib.sh),
@@ -31,7 +31,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/wakekv_gpu_lib.sh"
 
-require_flexicache_checkout "$SCRIPT_DIR"
+require_flexicache_checkout "$(cd "$SCRIPT_DIR/../.." && pwd)"
 INTERVALS="${INTERVALS:-1 2 4 8 16}"
 INPUT_LEN="${INPUT_LEN:-8000}"
 OUTPUT_LEN="${OUTPUT_LEN:-1000}"
@@ -122,7 +122,7 @@ run_one() {
     python "$BENCH" $(common_bench_args "$rerank" "$outfile") \
       || echo "!!! RUN FAILED ($label)"
   else
-    python "$WAKEKV_ROOT/scripts/run_wakekv.py" --mode "$mode" --rerank-interval "$rerank" -- \
+    python "$SCRIPT_DIR/run_wakekv.py" --mode "$mode" --rerank-interval "$rerank" -- \
       python "$BENCH" $(common_bench_args "$rerank" "$outfile") \
       || echo "!!! RUN FAILED ($label)"
   fi
@@ -140,4 +140,4 @@ for R in $INTERVALS; do
 done
 
 echo "=== ALL RUNS DONE $(date) ==="
-python "$WAKEKV_ROOT/scripts/wakekv_sweep_table.py" "$OUT_DIR" || true
+python "$SCRIPT_DIR/wakekv_sweep_table.py" "$OUT_DIR" || true

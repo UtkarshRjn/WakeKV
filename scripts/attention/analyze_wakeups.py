@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Wake-up prediction report from logged attention.
 
-  python scripts/analyze_wakeups.py runs/<model>/<task> \
+  python scripts/attention/analyze_wakeups.py runs/<model>/<task> \
       [--page-size 16] [--pcie-gbps 21] [--decode-step-ms 30]
 
 For every run with needle scores, extracts per-head wake-up events and
@@ -30,7 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wakekv.signals import (
     bonferroni_z_bar,

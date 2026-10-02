@@ -1,4 +1,4 @@
-"""Tests for scripts/wakekv_sweep_table.py, the rerank-sweep table.
+"""Tests for scripts/system/wakekv_sweep_table.py, the rerank-sweep table.
 
 We cover the pure-Python parts (label extraction, quality-shape parsing,
 end-to-end table rendering) so an accidental format drift in the
@@ -15,7 +15,7 @@ import sys
 import pytest
 
 _SCRIPTS = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "system"
 )
 
 

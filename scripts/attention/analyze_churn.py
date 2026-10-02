@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Head-churn report from logged attention.
 
-  python scripts/analyze_churn.py runs/<model>/<task> [--page-size 16] \
+  python scripts/attention/analyze_churn.py runs/<model>/<task> [--page-size 16] \
       [--score-thresholds 0.1 0.2 0.3]
 
 Produces per-run and aggregate statistics:
@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wakekv.metrics import (
     adjacent_jaccard_series,

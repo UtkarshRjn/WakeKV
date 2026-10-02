@@ -4,10 +4,10 @@
 No GPU needed. Both commands read log.npz under runs/, the same inputs
 analyze_churn.py and simulate_residency.py use.
 
-  python scripts/make_figures.py heatmap runs/<model>/<task> \\
+  python scripts/attention/make_figures.py heatmap runs/<model>/<task> \\
       --out figures/churn_heatmap.png
 
-  python scripts/make_figures.py pareto runs/<model>/<niah> runs/<model>/<cot> \\
+  python scripts/attention/make_figures.py pareto runs/<model>/<niah> runs/<model>/<cot> \\
       --out figures/pareto_curves.png
 """
 
@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wakekv.residency import page_score_stream_from_log, sweep, wanted_stream_from_log
 
