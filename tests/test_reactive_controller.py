@@ -16,6 +16,8 @@ def test_bad_args():
         ReactiveController(n_units=1, budget=4, rerank_interval=0)
     with pytest.raises(ValueError):
         ReactiveController(n_units=-1, budget=4)
+    with pytest.raises(ValueError):
+        ReactiveController(n_units=1, budget=4, demotion="destroy")  # typo
 
 
 def test_step_boundary_discipline():
@@ -152,6 +154,92 @@ def test_lru_matches_original_simulator_on_synthetic_shift():
     assert got["peak_resident_pages"] == ref.peak_resident_pages
     assert got["total_fetches"] == ref.fetches
     assert got["stall_steps"] == ref.stall_steps
+
+
+# --------------------------------------------------------------- evict mode
+def test_evict_never_recovers_a_destroyed_page():
+    """Phase 3 / E3c (ReasonAlloc-style): unlike offload, a demoted page
+    never comes back, no matter how many times it's re-wanted."""
+    ctrl = ReactiveController(n_units=1, budget=2, demotion="evict")
+    for step, want in enumerate([{1}, {2}, {3}]):
+        ctrl.begin_step(step)
+        ctrl.on_unit_lru(0, want)
+        ctrl.end_step()
+    # Page 1 is now destroyed (evicted at budget 2, page 3 pushed it out).
+    assert ctrl.destroyed_pages(0) == {1}
+    assert ctrl.reservoir_pages(0) == set()  # nothing ever goes to reservoir
+
+    # Want it back, twice in a row -- both are permanent misses, no fetch.
+    for step in (3, 4):
+        ctrl.begin_step(step)
+        ev = ctrl.on_unit_lru(0, {1})
+        ctrl.end_step()
+        assert ev.fetches == set()
+        assert ev.n_misses == 1
+        assert 1 not in ctrl.resident_pages(0)
+    d = ctrl.stats.as_dict()
+    assert d["total_misses"] == 2
+    assert d["total_fetches"] == 0  # never actually fetched, just missed
+
+
+def test_evict_first_touch_is_not_a_miss():
+    """A page that's never been resident before is ordinary cache growth,
+    not a miss -- evict mode only penalizes RE-wanting a destroyed page."""
+    ctrl = ReactiveController(n_units=1, budget=4, demotion="evict")
+    ctrl.begin_step(0)
+    ev = ctrl.on_unit_lru(0, {1, 2, 3})
+    ctrl.end_step()
+    assert ev.n_misses == 0
+    assert ctrl.resident_pages(0) == {1, 2, 3}
+
+
+def test_evict_matches_original_simulator_on_synthetic_shift():
+    """Regression check: on the same synthetic shifting-role stream used
+    for the offload regression test, evict mode must produce the SAME
+    numbers as wakekv.residency.simulate_evict (already validated on real
+    Phase 0/1 logs in PR #19)."""
+    from wakekv.residency import simulate_evict
+
+    S, H, B = 300, 4, 12
+    stream = []
+    for t in range(S):
+        row = []
+        for h in range(H):
+            center = (t * 2 + h * 7) % 120
+            row.append(frozenset({(center + d) for d in range(6)}))
+        stream.append(row)
+
+    ctrl = ReactiveController(n_units=H, budget=B, rerank_interval=1, demotion="evict")
+    for t, row in enumerate(stream):
+        ctrl.begin_step(t)
+        for u, wanted in enumerate(row):
+            ctrl.on_unit_lru(u, set(wanted))
+        ctrl.end_step()
+    got = ctrl.stats.as_dict()
+
+    ref = simulate_evict(stream, H, B)
+
+    assert got["miss_rate"] == pytest.approx(ref.miss_rate)
+    assert got["mean_resident_pages"] == pytest.approx(ref.mean_resident_pages)
+    assert got["peak_resident_pages"] == ref.peak_resident_pages
+    assert got["total_misses"] == ref.misses
+
+
+def test_evict_mode_does_not_affect_explicit_entry_point():
+    """on_unit_explicit doesn't implement evict semantics (see class
+    docstring) -- it should behave exactly as in offload mode regardless
+    of the demotion setting, not silently do something undefined."""
+    ctrl_evict = ReactiveController(n_units=1, budget=2, demotion="evict")
+    ctrl_offload = ReactiveController(n_units=1, budget=2, demotion="offload")
+    for ctrl in (ctrl_evict, ctrl_offload):
+        ctrl.begin_step(0)
+        ctrl.on_unit_explicit(0, {1, 2})
+        ctrl.end_step()
+        ctrl.begin_step(1)
+        ctrl.on_unit_explicit(0, {3, 4})
+        ctrl.end_step()
+    assert ctrl_evict.reservoir_pages(0) == ctrl_offload.reservoir_pages(0) == {1, 2}
+    assert ctrl_evict.destroyed_pages(0) == set()
 
 
 # ------------------------------------------------------------- explicit mode

@@ -12,18 +12,53 @@ Two entry points, one shared state:
   actually wanted this step (e.g. the logged top-k for a decode step).
   The controller LRU-caps the resident set at ``budget`` and counts
   fetch-on-demand for any wanted page currently on CPU. This is what the
-  simulator uses.
+  simulator uses. Supports both demotion modes (see below).
 
 - ``on_unit_explicit(unit, desired_set)`` — caller passes the exact set
   that should be resident after this step (e.g. top-B by MinMax score in
   FlexiCache). The controller diffs desired vs. current resident and
-  reports fetches / evictions. This is what the shim uses.
+  reports fetches / evictions. This is what the real FlexiCache shim is
+  DESIGNED to use, but as of PR #8 the shim (``wakekv/flexicache_shim.py``)
+  doesn't actually call it — it only overrides FlexiCache's config
+  (``unstable_heads``, ``rerank_frequency``) and lets FlexiCache's own
+  native promote/demote code do the work. ``on_unit_explicit`` only
+  supports reversible (``"offload"``) demotion; it's a currently-unused
+  entry point kept for a from-scratch (non-FlexiCache-native) engine.
 
 Both interfaces share ``rerank_interval``: on non-rerank steps residency
 is left untouched, matching FlexiCache's periodic-refresh behavior. With
 ``rerank_interval=1`` you get the fully reactive WakeKV design; with
 ``rerank_interval=16`` you get FlexiCache's default cadence — one knob
 spans both policies.
+
+Demotion mode (``demotion`` constructor arg, ``on_unit_lru`` only):
+
+- ``"offload"`` (default) — WakeKV. A demoted page moves to a CPU
+  reservoir; re-wanting it is one recoverable stall (fetch + miss), then
+  it's resident again.
+- ``"evict"`` — ReasonAlloc-style (Phase 3, E3c/C3's real-system foil).
+  A demoted page is destroyed, not reserved: it's added to a permanent
+  ``_destroyed`` set (mirrors ``wakekv.residency.simulate_evict`` exactly
+  — see that function's docstring for why re-admission after the first
+  destruction can't be free, or the miss RATE wouldn't diverge from
+  offload's at all). Re-wanting a destroyed page misses on *every* want
+  forever; nothing brings it back.
+
+**Real-system wiring for "evict" mode is NOT done.** Unlike "reactive"
+mode (a 2-config-value override that reuses FlexiCache's own reversible
+promote/demote code for free), a real evict/destructive mode needs
+FlexiCache's actual demotion mechanism (wherever
+``KVCacheManager.free_pages_decode_phase``'s freed block becomes
+reusable/fetchable) to be patched so a freed block is NOT
+recoverable — that requires reading FlexiCache's source directly (not
+vendored into this repo) to find the right hook point, which hasn't been
+done. This class's "evict" mode is ready and tested for whatever driver
+calls ``on_unit_lru`` (the Phase 2a simulator today); wiring a real E3c
+head-to-head into the vLLM/FlexiCache shim is the concrete next step,
+scoped to: (1) inspect FlexiCache's reservoir/block-reuse code on the
+target host, (2) either patch it directly or replace it with a call into
+this controller's ``on_unit_lru``/``on_unit_explicit`` (whichever
+FlexiCache's real hot path can accommodate).
 
 No GPU, no vLLM dependency. Pure Python.
 """
@@ -88,19 +123,30 @@ class ReactiveController:
         print(ctrl.stats.as_dict())
     """
 
-    def __init__(self, n_units: int, budget: int, rerank_interval: int = 1) -> None:
+    def __init__(
+        self,
+        n_units: int,
+        budget: int,
+        rerank_interval: int = 1,
+        demotion: str = "offload",
+    ) -> None:
         if n_units < 0:
             raise ValueError(f"n_units must be >= 0, got {n_units}")
         if budget < 0:
             raise ValueError(f"budget must be >= 0, got {budget}")
         if rerank_interval < 1:
             raise ValueError(f"rerank_interval must be >= 1, got {rerank_interval}")
+        if demotion not in ("offload", "evict"):
+            raise ValueError(f"demotion must be 'offload' or 'evict', got {demotion!r}")
         self.n_units = n_units
         self.budget = budget
         self.rerank_interval = rerank_interval
+        self.demotion = demotion
         # page -> last-touched step (dict order = insertion; last-touched via update)
         self._resident: list[dict[int, int]] = [{} for _ in range(n_units)]
         self._reservoir: list[set[int]] = [set() for _ in range(n_units)]
+        # "evict" mode only: pages demoted here never return (on_unit_lru).
+        self._destroyed: list[set[int]] = [set() for _ in range(n_units)]
         self.stats = ControllerStats()
         self._current_step: int | None = None
         self._step_had_fetch = False
@@ -133,26 +179,36 @@ class ReactiveController:
     def on_unit_lru(self, unit: int, wanted_pages: set[int]) -> StepEvent:
         """Simulator entry point. Caller passes the pages this unit
         actually wanted this decode step. The controller: (a) fetches any
-        wanted page currently on CPU (counted as a miss + a fetch),
-        (b) touches its LRU timestamp for the pages it saw, and (c) at
-        rerank cadence evicts oldest-first back to the reservoir until
-        len(resident) <= budget.
+        wanted page currently on CPU (counted as a miss + a fetch), or, in
+        ``demotion="evict"`` mode, permanently misses any wanted page that
+        was previously destroyed (b) touches its LRU timestamp for the
+        pages it saw, and (c) at rerank cadence evicts oldest-first —
+        to the reservoir (``"offload"``) or permanently (``"evict"``) —
+        until len(resident) <= budget.
         """
         step = self._require_step()
         ev = StepEvent()
         resident = self._resident[unit]
         reservoir = self._reservoir[unit]
+        destroyed = self._destroyed[unit]
 
         for p in wanted_pages:
             self.stats.total_wanted += 1
             if p in resident:
                 resident[p] = step
             elif p in reservoir:
-                # Miss: wanted page was on CPU. Fetch it now.
+                # Miss: wanted page was on CPU (offload mode). Fetch it now.
                 ev.fetches.add(p)
                 ev.n_misses += 1
                 reservoir.discard(p)
                 resident[p] = step
+            elif p in destroyed:
+                # Evict mode: gone for good. Miss every time, no fetch, no
+                # re-admission -- see wakekv.residency.simulate_evict, same
+                # semantics, needed so the miss RATE actually diverges from
+                # offload's (a naive "recompute instantly" re-admit would
+                # make evict and offload's miss rate identical).
+                ev.n_misses += 1
             else:
                 # First-touch: brand-new page, treat as normal cache growth.
                 resident[p] = step
@@ -163,8 +219,11 @@ class ReactiveController:
             oldest = sorted(resident.keys(), key=resident.__getitem__)[:excess]
             for p in oldest:
                 del resident[p]
-                reservoir.add(p)
                 ev.evictions.add(p)
+                if self.demotion == "evict":
+                    destroyed.add(p)
+                else:
+                    reservoir.add(p)
 
         self._commit(ev)
         return ev
@@ -218,6 +277,11 @@ class ReactiveController:
     def reservoir_pages(self, unit: int) -> set[int]:
         """Snapshot of a unit's CPU reservoir (for tests)."""
         return set(self._reservoir[unit])
+
+    def destroyed_pages(self, unit: int) -> set[int]:
+        """Snapshot of a unit's permanently-destroyed pages (evict mode
+        only; always empty in offload mode)."""
+        return set(self._destroyed[unit])
 
     def total_resident_pages(self) -> int:
         """Sum of resident pages across all units (right-now, not integrated)."""
