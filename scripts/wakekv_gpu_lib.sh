@@ -156,3 +156,18 @@ detect_python() {
        "Set PYTHON explicitly to an interpreter with numpy installed." >&2
   return 1
 }
+
+# System scripts need a FlexiCache checkout. There is no default path:
+# the paper's A30 runs used one lab machine, and that commit was not
+# recorded here. Pass the repo root as $1 (the caller's SCRIPT_DIR).
+require_flexicache_checkout() {
+  local script_dir="$1"
+  WAKEKV_ROOT="${WAKEKV_ROOT:-$(cd "$script_dir/.." && pwd)}"
+  export WAKEKV_ROOT
+  if [ -z "${FLEXI_ROOT:-}" ] || [ ! -d "$FLEXI_ROOT" ]; then
+    echo "Set FLEXI_ROOT to a FlexiCache checkout (https://github.com/NazmulTakbir/FlexiCache)." >&2
+    echo "The commit used for the paper's A30 numbers was not recorded in this repo; record the commit you build." >&2
+    exit 1
+  fi
+  export FLEXI_ROOT
+}

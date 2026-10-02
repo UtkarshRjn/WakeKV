@@ -2,13 +2,13 @@
 """Phase 0 runner: instrumented generation + per-step head logging.
 
 Examples:
-  python scripts/run_phase0.py --model Qwen/Qwen2.5-7B-Instruct \
+  python scripts/run_phase0.py --model Qwen/Qwen2.5-3B-Instruct \
       --task niah --context-tokens 5000 --depths 0.25 0.5 0.75 --seeds 0 1 2
 
-  python scripts/run_phase0.py --model deepseek-ai/DeepSeek-R1-Distill-Llama-8B \
-      --task cot --max-new-tokens 2048 --limit 5
+  python scripts/run_phase0.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
+      --task cot --max-new-tokens 2048 --limit 5 --dtype float32
 
-  python scripts/run_phase0.py --model Qwen/Qwen2.5-7B-Instruct --task multiturn
+  python scripts/run_phase0.py --model Qwen/Qwen2.5-3B-Instruct --task multiturn
 
 Requires a CUDA GPU. Models are loaded with attn_implementation="eager"
 (required to materialize attention weights).

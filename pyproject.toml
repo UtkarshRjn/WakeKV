@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wakekv"
+version = "0.1.0"
+description = "Reactive, reversible KV-cache residency for attention heads"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Utkarsh Ranjan", email = "utranjan@ucsd.edu" }]
+dependencies = [
+    "torch>=2.3",
+    "transformers>=4.44",
+    "numpy>=1.26",
+    "matplotlib>=3.8",
+    "datasets>=2.20",
+    "tqdm",
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+include = ["wakekv*"]

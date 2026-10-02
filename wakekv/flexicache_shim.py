@@ -103,7 +103,9 @@ def install(mode: str = "reactive", rerank_interval: int = 1) -> None:
     Parameters
     ----------
     mode
-        - ``"reactive"``: WakeKV. Every head "stable", rerank every step.
+        - ``"reactive"``: WakeKV. ``unstable_heads`` is cleared, so no head
+          is kept fully resident; every head takes the sparse top-B path.
+          ``rerank_frequency`` is set to ``rerank_interval``.
         - ``"identity"``: pass-through — keeps whatever FlexiCache loaded.
           Used for the M2b-1b correctness check.
         - ``"off"`` / ``"uninstall"``: remove the patch.

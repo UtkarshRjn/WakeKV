@@ -10,15 +10,14 @@
 #
 # Usage:  bash scripts/wakekv_analyze_all_phase1.sh [RUNS_ROOT]
 # Env:    RUNS_ROOT (default "runs")
-# Output: <task_dir>/signal_study.md written as before by analyze_phase1.py,
-#         PLUS a combined signal_study_all.md at the repo root concatenating
-#         every report (with a header naming the model/task) for easy diffing.
+# Output: <task_dir>/signal_study.md written by analyze_phase1.py, plus a
+#         combined runs/signal_study_all.md concatenating every report.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WAKEKV_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUNS_ROOT="${1:-$WAKEKV_ROOT/runs}"
-OUT_SUMMARY="$WAKEKV_ROOT/signal_study_all.md"
+OUT_SUMMARY="$RUNS_ROOT/signal_study_all.md"
 
 if [ ! -d "$RUNS_ROOT" ]; then
     echo "no such directory: $RUNS_ROOT" >&2

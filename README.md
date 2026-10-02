@@ -39,9 +39,13 @@ FlexiCache while holding LongBench quality.
 | `scripts/analyze_phase0.py` | Head-churn report from those logs |
 | `scripts/analyze_phase1.py` | Wake-up prediction study (no extra GPU time) |
 | `scripts/simulate_residency.py` | Miss rate for reactive, frozen, evict, SnapKV, R-KV, and ReasonAlloc |
+| `scripts/analyze_clustering.py` | Whether wake-ups bunch in time |
+| `scripts/reproduce_paper.sh` | The paper's five model/regime combinations |
 | `scripts/run_wakekv.py` | Run a FlexiCache/vLLM command with the WakeKV shim installed |
 | `scripts/wakekv_rerank_sweep.sh` | Throughput sweep on a FlexiCache checkout |
-| `scripts/wakekv_longbench_check.sh` | LongBench quality check beside that sweep |
+| `scripts/wakekv_longbench_check.sh` | LongBench quality at one rerank interval |
+| `scripts/wakekv_quality_pareto.sh` | LongBench quality at every rerank interval |
+| `scripts/wakekv_sweep_table.py` | Markdown table from those sweep JSONs |
 | `tests/` | CPU unit tests |
 
 Logs and plots stay local. `runs/` and `figures/` are gitignored.
@@ -49,9 +53,11 @@ Logs and plots stay local. `runs/` and `figures/` are gitignored.
 ## Setup
 
 ```bash
-pip install -r requirements.txt
-pytest tests/
+pip install -e .
+pytest
 ```
+
+`requirements.txt` lists the same dependencies. Apache-2.0; see `LICENSE`.
 
 Measurement runs need a CUDA GPU. The 1.5B and 3B logs in the paper were
 taken on an RTX 2080 Ti (11 GB); the 8B logs and the Mistral-7B system run
@@ -84,7 +90,10 @@ measured values.
 ```bash
 python scripts/analyze_phase1.py runs/Qwen__Qwen2.5-3B-Instruct/niah \
     --pcie-gbps 21 --decode-step-ms 30
+bash scripts/wakekv_analyze_all_phase1.sh
 ```
+
+The combined prediction report is `runs/signal_study_all.md`.
 
 ## Residency simulator
 
@@ -98,6 +107,23 @@ bash scripts/wakekv_simulate_residency_all.sh
 Per-task reports land in `runs/<model>/<task>/residency.md`. The combined
 report is `runs/residency_all.md`.
 
+SnapKV, uniform R-KV, and ReasonAlloc in this simulator are
+reimplementations, not the authors' code. SnapKV's observation window is
+the log's first step. R-KV and ReasonAlloc score importance only, because
+the logs do not contain key vectors, so the redundancy term is omitted.
+ReasonAlloc uses an equal per-layer budget instead of that paper's
+Reasoning-Wave split. On Mistral-7B/NIAH the R-KV and ReasonAlloc interval
+is 8 steps, not the default 128, and those two columns are left out of the
+paper's win counts.
+
+The five combinations in the paper, and that Mistral exception, are in
+`scripts/reproduce_paper.sh`:
+
+```bash
+bash scripts/reproduce_paper.sh log       # GPU
+bash scripts/reproduce_paper.sh analyze   # CPU, after logs exist
+```
+
 ```bash
 python scripts/make_figures.py heatmap runs/Qwen__Qwen2.5-3B-Instruct/niah
 python scripts/make_figures.py pareto \
@@ -108,19 +134,23 @@ python scripts/make_figures.py pareto \
 ## FlexiCache / vLLM
 
 The system result is a shim over [FlexiCache](https://github.com/NazmulTakbir/FlexiCache)
-(Apache 2.0). Point `FLEXI_ROOT` at that checkout and `WAKEKV_ROOT` at this
-one. Reactive mode classifies no heads as stable and reranks on the interval
-you set. `R=1` is the WakeKV design point.
+(Apache 2.0). Set `FLEXI_ROOT` to that checkout before the shell scripts;
+they have no default path. `WAKEKV_ROOT` defaults to this repository. The
+FlexiCache commit used for the A30 numbers was not recorded here, so record
+the commit you build. The shim clears `unstable_heads`, which puts every
+head on FlexiCache's sparse top-B path, and sets the rerank interval.
+`R=1` is the WakeKV design point.
 
 ```bash
+export FLEXI_ROOT=/path/to/FlexiCache
+bash scripts/reproduce_paper.sh system
+python scripts/wakekv_sweep_table.py "$FLEXI_ROOT/benchmarks/FlexiCache/Throughput/Results_M2b2"
+
 python scripts/run_wakekv.py --mode reactive --rerank-interval 1 -- \
     python -m vllm.entrypoints.openai.api_server \
     --model mistralai/Mistral-7B-Instruct-v0.2 \
     --enable-flexicache --num-unstable-heads 64 --topK-budget 64 \
     --unstable-heads-profile-task gov_report
-
-bash scripts/wakekv_rerank_sweep.sh
-bash scripts/wakekv_longbench_check.sh
 ```
 
 The target command has to start with `python` or `python3`. The shim is

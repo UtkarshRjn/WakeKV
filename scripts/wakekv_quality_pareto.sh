@@ -28,8 +28,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/wakekv_gpu_lib.sh"
 
-WAKEKV_ROOT="${WAKEKV_ROOT:-/home/utranjan/dynamic-head-kv}"
-FLEXI_ROOT="${FLEXI_ROOT:-/home/utranjan/FlexiCache}"
+require_flexicache_checkout "$SCRIPT_DIR"
 INTERVALS="${INTERVALS:-1 2 4 8 16}"
 LONGBENCH_TASKS="${LONGBENCH_TASKS:-qasper 2wikimqa triviaqa multi_news}"
 SAMPLES_PER_TASK="${SAMPLES_PER_TASK:-30}"
