@@ -8,10 +8,12 @@
 # analyze reads gitignored runs/ and does not need a GPU. Fetch the
 # paper's logs first with scripts/fetch_logs.sh. The archive has four
 # combinations (Qwen2.5-3B NIAH and multi-turn,
-# R1-Distill-Qwen-1.5B CoT, R1-Distill-Llama-8B CoT). Mistral-7B/NIAH is
-# analyzed only when its log.npz files are present, with R-KV and
-# ReasonAlloc pruning every 8 steps instead of 128. Needle depth for that
-# Mistral run was not recorded; the log stage uses the harness default 0.5.
+# R1-Distill-Qwen-1.5B CoT, R1-Distill-Llama-8B CoT). The Mistral-7B/NIAH
+# attention logs could not be recovered, so analyze skips that combination
+# unless its log.npz files are present. A regenerated run uses R-KV and
+# ReasonAlloc pruning every 8 steps instead of 128. Needle depth for the
+# paper's Mistral run was not recorded; the log stage uses the harness
+# default 0.5.
 #
 # Bit-exact table match needs the same logs the paper used. Regenerating
 # them follows this matrix; it does not guarantee the same sampled prompts.

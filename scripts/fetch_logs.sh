@@ -3,7 +3,8 @@
 #
 # The archive is the GitHub release attention-logs-v1: 20 log.npz files
 # and the meta.json next to each one, for Qwen2.5-3B (NIAH and multi-turn)
-# and the two R1-Distill CoT models. Mistral-7B/NIAH is not in the archive.
+# and the two R1-Distill CoT models. The Mistral-7B/NIAH attention logs
+# could not be recovered and are not in the archive.
 # Derived reports (summary.md, residency.md, plots) are not included; the
 # analyze stage regenerates them.
 #

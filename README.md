@@ -92,9 +92,13 @@ bash scripts/reproduce_paper.sh analyze
 ```
 
 That writes `summary.md`, `signal_study.md`, `clustering.md`, and
-`residency.md` next to each task. Mistral-7B/NIAH is not in this tree. The
-analyze stage skips it unless
+`residency.md` next to each task. The Mistral-7B/NIAH attention logs
+could not be recovered, so they are not in the release. The analyze
+stage skips that combination unless
 `runs/mistralai__Mistral-7B-Instruct-v0.2/niah/` contains a `log.npz`.
+Regenerating it uses needle depth 0.5, the harness default; the depth
+used for the paper was not recorded. The Mistral-7B FlexiCache system
+run is separate from these logs.
 
 ## Head churn
 
