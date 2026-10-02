@@ -5,12 +5,13 @@
 #   bash scripts/reproduce_paper.sh analyze   # CPU: churn, prediction, simulator
 #   bash scripts/reproduce_paper.sh system    # A30-style FlexiCache sweep; needs FLEXI_ROOT
 #
-# This does not download logs. Attention logs are not in the git tree.
-# The flags below are the ones recorded with the paper: regimes, context
-# lengths, the 1.5B dtype, the five Mistral seeds at 8000 tokens, budgets
-# 8/16/32/64, and the Mistral R-KV/ReasonAlloc interval of 8. Needle depth
-# for that Mistral run was not recorded; the harness default (0.5) is used.
-# Qwen NIAH uses the depths and seeds in the README.
+# analyze reads gitignored runs/ and does not need a GPU. Fetch the
+# paper's logs first with scripts/fetch_logs.sh. The archive has four
+# combinations (Qwen2.5-3B NIAH and multi-turn,
+# R1-Distill-Qwen-1.5B CoT, R1-Distill-Llama-8B CoT). Mistral-7B/NIAH is
+# analyzed only when its log.npz files are present, with R-KV and
+# ReasonAlloc pruning every 8 steps instead of 128. Needle depth for that
+# Mistral run was not recorded; the log stage uses the harness default 0.5.
 #
 # Bit-exact table match needs the same logs the paper used. Regenerating
 # them follows this matrix; it does not guarantee the same sampled prompts.
@@ -77,8 +78,12 @@ stage_analyze() {
   done
   # Paper appendix: this combo's R-KV and ReasonAlloc use buffer/delta = 8,
   # not the default 128, and those two columns are excluded from the win counts.
-  analyze_one runs/mistralai__Mistral-7B-Instruct-v0.2/niah \
-    --rkv-buffer 8 --reasonalloc-delta 8
+  local mistral=runs/mistralai__Mistral-7B-Instruct-v0.2/niah
+  if compgen -G "$mistral"/*/log.npz > /dev/null; then
+    analyze_one "$mistral" --rkv-buffer 8 --reasonalloc-delta 8
+  else
+    echo "skip $mistral (no log.npz in this tree)"
+  fi
 }
 
 stage_system() {
