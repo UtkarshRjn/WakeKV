@@ -43,7 +43,7 @@ found_any=0
 failed=()
 for task_dir in "$RUNS_ROOT"/*/*/; do
     task_dir="${task_dir%/}"
-    # Only process directories that look like run_phase0.py output: at
+    # Only process directories that look like log_attention.py output: at
     # least one direct child with a log.npz (same test simulate_residency.py
     # itself uses to find run dirs).
     if ! compgen -G "$task_dir"/*/log.npz > /dev/null; then

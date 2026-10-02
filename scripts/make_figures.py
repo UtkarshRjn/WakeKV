@@ -2,7 +2,7 @@
 """Plot head-activity heatmaps and memory-vs-miss-rate Pareto curves.
 
 No GPU needed. Both commands read log.npz under runs/, the same inputs
-analyze_phase0.py and simulate_residency.py use.
+analyze_churn.py and simulate_residency.py use.
 
   python scripts/make_figures.py heatmap runs/<model>/<task> \\
       --out figures/churn_heatmap.png

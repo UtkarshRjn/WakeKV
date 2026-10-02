@@ -103,7 +103,7 @@ def signal_needle_mass_delta(score: np.ndarray, window: int = 4) -> np.ndarray:
 # occurred, test each one's empirical lift in predicting a wake burst via a
 # two-proportion z-test, correct for testing thousands of vocab entries at
 # once (Bonferroni), and evaluate the selected tokens ONLY on data disjoint
-# from what selected them (see analyze_phase1.py's discovery/held-out
+# from what selected them (see analyze_wakeups.py's discovery/held-out
 # split) — using the same data for both is the textbook multiple-comparisons
 # trap: at a 30k-token vocabulary, plenty of tokens will look "significant"
 # by chance alone at an uncorrected threshold.
