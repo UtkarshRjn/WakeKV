@@ -65,7 +65,7 @@ overflow to NaN in fp16.
 
 `runs/` is gitignored, so a clone does not include them. The paper's
 attention logs are the GitHub release
-[attention-logs-v1](https://github.com/UtkarshRjn/dynamic-head-kv/releases/tag/attention-logs-v1):
+[attention-logs-v1](https://github.com/UtkarshRjn/WakeKV/releases/tag/attention-logs-v1):
 20 `log.npz` files, each with a `meta.json` beside it. Derived reports are
 not in the archive; the analyze stage writes them.
 
