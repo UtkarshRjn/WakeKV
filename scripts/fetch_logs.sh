@@ -13,7 +13,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-URL="https://github.com/UtkarshRjn/dynamic-head-kv/releases/download/attention-logs-v1/wakekv-attention-logs.zip"
+URL="https://github.com/UtkarshRjn/WakeKV/releases/download/attention-logs-v1/wakekv-attention-logs.zip"
 SHA256="c302b7308522bf995bce43d682aa5c17349668eb2b26a06fbda7b1bb0695f65a"
 SENTINEL="$ROOT/runs/Qwen__Qwen2.5-3B-Instruct/multiturn/recall/log.npz"
 
