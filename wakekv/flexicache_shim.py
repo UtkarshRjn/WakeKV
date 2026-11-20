@@ -106,6 +106,9 @@ def install(mode: str = "reactive", rerank_interval: int = 1) -> None:
         - ``"reactive"``: WakeKV. ``unstable_heads`` is cleared, so no head
           is kept fully resident; every head takes the sparse top-B path.
           ``rerank_frequency`` is set to ``rerank_interval``.
+        - ``"cadence"``: change only ``rerank_frequency``. Dense heads stay
+          as FlexiCache loaded them. Used to measure rerank interval with
+          stock's 64 dense heads still in place.
         - ``"identity"``: pass-through — keeps whatever FlexiCache loaded.
           A pass-through used to check that the patch itself does not
           change FlexiCache's output.
@@ -118,9 +121,9 @@ def install(mode: str = "reactive", rerank_interval: int = 1) -> None:
         uninstall()
         return
 
-    if mode not in ("reactive", "identity"):
+    if mode not in ("reactive", "identity", "cadence"):
         raise ValueError(
-            f"mode must be 'reactive', 'identity', or 'off'; got {mode!r}"
+            f"mode must be 'reactive', 'identity', 'cadence', or 'off'; got {mode!r}"
         )
     if rerank_interval < 1:
         raise ValueError(f"rerank_interval must be >= 1, got {rerank_interval}")
@@ -173,6 +176,9 @@ def _apply_config_override(config: Any) -> ShimReport:
         # the un-rounded total (off-by-one vs the 0-unstable-head allocation).
         config.num_unstable_heads = 0
         config.unstable_heads_portion = 0.0
+        config.rerank_frequency = _current_rerank_interval
+    elif _current_mode == "cadence":
+        # Dense-head list stays. Only the rerank interval changes.
         config.rerank_frequency = _current_rerank_interval
     elif _current_mode == "identity":
         pass  # keep whatever the config loaded from model_data
