@@ -9,6 +9,11 @@ WAKEKV_ROOT="${WAKEKV_ROOT:-$HOME/dynamic-head-kv}"
 FLEXI_ROOT="${FLEXI_ROOT:-$HOME/FlexiCache}"
 PY="${PY:-$HOME/.conda/envs/FlexiCache/bin/python}"
 export PATH="$(dirname "$PY"):$PATH"
+# nvcc invokes cicc by name. The notebook image keeps it in nvvm/bin,
+# which is not on PATH, so FlexiCache's JIT extension fails with exit 127.
+if [ -d /opt/conda/nvvm/bin ]; then
+  export PATH="/opt/conda/nvvm/bin:$PATH"
+fi
 export LD_LIBRARY_PATH="$HOME/.conda/envs/FlexiCache/lib:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$WAKEKV_ROOT:${PYTHONPATH:-}"
 export VLLM_USE_V1=1
