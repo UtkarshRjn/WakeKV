@@ -76,6 +76,17 @@ def test_reactive_zeros_scalar_unstable_head_fields():
     assert cfg.unstable_heads_portion == 0.0
 
 
+def test_cadence_keeps_dense_heads_and_sets_interval():
+    shim._current_mode = "cadence"
+    shim._current_rerank_interval = 1
+    cfg = _mock_config(unstable_heads=[[3, 5], [4, 7]], rerank_frequency=16)
+    report = shim._apply_config_override(cfg)
+    assert cfg.unstable_heads == [[3, 5], [4, 7]]
+    assert cfg.num_unstable_heads == 2
+    assert cfg.rerank_frequency == 1
+    assert report.unstable_heads_count_before == report.unstable_heads_count_after
+
+
 def test_reactive_respects_configured_interval():
     shim._current_mode = "reactive"
     shim._current_rerank_interval = 4
