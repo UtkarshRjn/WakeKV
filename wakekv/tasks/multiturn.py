@@ -75,7 +75,7 @@ def build_multiturn_prompt(tokenizer, n_filler_turns: int = 3) -> dict:
             "remember the conversation, not just the list.",
         }
     )
-    prompt = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
+    from wakekv.tasks.chat_format import format_chat
+
+    prompt = format_chat(tokenizer, messages, add_generation_prompt=True)
     return {"prompt": prompt, "needle": FACTS, "answer": "maple-syrup-42"}

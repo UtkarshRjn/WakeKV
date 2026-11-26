@@ -279,10 +279,16 @@ def simulate_frozen(
     budget: int,
     unstable_frac: float = 0.25,
     refresh: int = 16,
+    unstable: set[int] | None = None,
 ) -> SimStats:
     """FlexiCache-style: unstable heads keep full KV resident; stable heads
-    keep a fixed top-``budget`` set refreshed every ``refresh`` steps."""
-    unstable = classify_unstable(stream, n_units, unstable_frac)
+    keep a fixed top-``budget`` set refreshed every ``refresh`` steps.
+
+    ``unstable=None`` fits the split on the whole stream. Pass a set fit
+    on a prefix to score a causal classification on the rest of the trace.
+    """
+    if unstable is None:
+        unstable = classify_unstable(stream, n_units, unstable_frac)
     resident = [dict() for _ in range(n_units)]       # page -> last-used step
     window_demand = [dict() for _ in range(n_units)]   # page -> count since refresh
     st = SimStats("frozen", budget, len(stream), 0, 0, 0, 0, 0, 0)

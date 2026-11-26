@@ -34,8 +34,13 @@ class RunLog:
     ctx_len: np.ndarray  # int32 [S] — attention-row length at each step
     needle_score: np.ndarray | None  # float32 [S, L, H]
     copy_paste: np.ndarray | None  # bool [S, L, H]
+    page_max: np.ndarray | None = None  # float16 [S, L, H, P], 0 past ctx
+    # Optional Phase-3 detector fields (large; written beside log.npz).
+    query: np.ndarray | None = None  # float16 [S, L, H, D]
     gen_token_ids: list[int] = field(default_factory=list)
     meta: dict = field(default_factory=dict)
+    # page -> (kmin, kmax) per (layer, head); saved as kmin.npz / kmax.npz
+    key_extrema: dict[str, tuple[np.ndarray, np.ndarray]] | None = None
 
     def save(self, out_dir: str | Path) -> Path:
         out = Path(out_dir)
@@ -49,9 +54,33 @@ class RunLog:
         if self.needle_score is not None:
             arrays["needle_score"] = self.needle_score
             arrays["copy_paste"] = self.copy_paste
+        if self.page_max is not None:
+            arrays["page_max"] = self.page_max
         np.savez_compressed(out / "log.npz", **arrays)
+        if self.query is not None:
+            np.save(out / "query.npy", self.query)
+            self.meta["has_query"] = True
+        if self.key_extrema:
+            kmin = {k: v[0] for k, v in self.key_extrema.items()}
+            kmax = {k: v[1] for k, v in self.key_extrema.items()}
+            np.savez_compressed(out / "kmin.npz", **kmin)
+            np.savez_compressed(out / "kmax.npz", **kmax)
+            self.meta["has_key_extrema"] = True
         (out / "meta.json").write_text(json.dumps(self.meta, indent=2))
         return out
+
+
+def page_key_extrema(keys: np.ndarray, page_size: int) -> tuple[np.ndarray, np.ndarray]:
+    """``keys`` [T, D] → dense ``kmin``/``kmax`` [n_pages, D]."""
+    t, d = keys.shape
+    n_pages = (t + page_size - 1) // page_size
+    kmin = np.full((n_pages, d), np.inf, dtype=np.float32)
+    kmax = np.full((n_pages, d), -np.inf, dtype=np.float32)
+    for p in range(n_pages):
+        chunk = keys[p * page_size : min(t, (p + 1) * page_size)]
+        kmin[p] = chunk.min(axis=0)
+        kmax[p] = chunk.max(axis=0)
+    return kmin, kmax
 
 
 def find_token_span(tokenizer, full_text: str, substring: str) -> tuple[int, int]:
@@ -72,6 +101,41 @@ def find_token_span(tokenizer, full_text: str, substring: str) -> tuple[int, int
     return tok_start, tok_end
 
 
+def chunked_prefill(base, input_ids: torch.Tensor, chunk_size: int = 512):
+    """Prefill every token except the last, one chunk at a time.
+
+    Eager attention materializes the score matrix. A single forward of a
+    65,536-token prompt asks for hundreds of gigabytes. Chunks keep each
+    score matrix at ``heads × chunk × cache`` instead of ``heads × T × T``.
+    Returns the KV cache. The KV itself may still not fit.
+    """
+    from transformers.cache_utils import DynamicCache
+
+    past = None
+    body = input_ids[:, :-1]
+    pos = 0
+    n = body.shape[1]
+    while pos < n:
+        end = min(n, pos + chunk_size)
+        out = base(body[:, pos:end], past_key_values=past, use_cache=True)
+        past = out.past_key_values
+        # Normalize legacy tuple caches so callers can clone consistently.
+        if isinstance(past, tuple) and hasattr(DynamicCache, "from_legacy_cache"):
+            past = DynamicCache.from_legacy_cache(past)
+        pos = end
+    return past
+
+
+def page_max_from_row(att: torch.Tensor, page_size: int) -> torch.Tensor:
+    """Max attention in each page. ``att`` is [L, H, ctx]."""
+    ctx = att.shape[-1]
+    n_pages = (ctx + page_size - 1) // page_size
+    pad = n_pages * page_size - ctx
+    if pad:
+        att = torch.nn.functional.pad(att, (0, pad))
+    return att.view(*att.shape[:-1], n_pages, page_size).amax(dim=-1)
+
+
 @torch.no_grad()
 def run_instrumented_generation(
     model,
@@ -83,6 +147,8 @@ def run_instrumented_generation(
     sink_tokens: int = 4,
     local_window: int = 32,
     meta: dict | None = None,
+    prefill_chunk: int = 512,
+    page_size: int = 0,
 ) -> RunLog:
     device = next(model.parameters()).device
     enc = tokenizer(prompt_text, return_tensors="pt", add_special_tokens=True)
@@ -102,13 +168,13 @@ def run_instrumented_generation(
     # logits — logits.float() over [seq, vocab] is a multi-GB peak on long
     # contexts and the prefill logits are unused (only the KV cache is kept).
     base = getattr(model, "model", model)
-    out = base(input_ids[:, :-1], use_cache=True)
-    past = out.past_key_values
+    past = chunked_prefill(base, input_ids, prefill_chunk)
     cur = input_ids[:, -1:]
 
     full_tokens: list[int] = input_ids[0].tolist()
     steps_idx, steps_val, steps_ctx = [], [], []
     steps_needle, steps_copy = [], []
+    steps_page: list[np.ndarray] = []
     gen_ids: list[int] = []
     eos_ids = set(
         cfg.eos_token_id if isinstance(cfg.eos_token_id, list) else [cfg.eos_token_id]
@@ -131,6 +197,10 @@ def run_instrumented_generation(
         steps_idx.append(idx.cpu().numpy().astype(np.int32))
         steps_val.append(val.cpu().numpy().astype(np.float16))
         steps_ctx.append(ctx)
+        if page_size:
+            steps_page.append(
+                page_max_from_row(att, page_size).cpu().numpy().astype(np.float16)
+            )
 
         if needle_span is not None:
             s, e = needle_span
@@ -174,14 +244,26 @@ def run_instrumented_generation(
         "local_window": local_window,
         "needle_token_span": list(needle_span) if needle_span else None,
         "generated_text": tokenizer.decode(gen_ids),
+        "page_size": page_size or None,
+        "prefill_chunk": prefill_chunk,
         **(meta or {}),
     }
+    page_max = None
+    if steps_page:
+        width = max(p.shape[-1] for p in steps_page)
+        padded = []
+        for p in steps_page:
+            if p.shape[-1] < width:
+                p = np.pad(p, [(0, 0), (0, 0), (0, width - p.shape[-1])])
+            padded.append(p)
+        page_max = np.stack(padded)
     return RunLog(
         topk_idx=np.stack(steps_idx),
         topk_val=np.stack(steps_val),
         ctx_len=np.array(steps_ctx, dtype=np.int32),
         needle_score=np.stack(steps_needle) if steps_needle else None,
         copy_paste=np.stack(steps_copy) if steps_copy else None,
+        page_max=page_max,
         gen_token_ids=gen_ids,
         meta=log_meta,
     )

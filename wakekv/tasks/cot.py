@@ -56,6 +56,8 @@ def load_problems(source: str = "auto", limit: int = 5) -> list[dict]:
 
 def build_cot_prompt(tokenizer, problem: str) -> dict:
     """Chat-formatted prompt; needle = the problem statement."""
+    from wakekv.tasks.chat_format import format_chat
+
     messages = [
         {
             "role": "user",
@@ -63,7 +65,5 @@ def build_cot_prompt(tokenizer, problem: str) -> dict:
             "state the final answer.\n\n" + problem,
         }
     ]
-    prompt = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
+    prompt = format_chat(tokenizer, messages, add_generation_prompt=True)
     return {"prompt": prompt, "needle": problem}
