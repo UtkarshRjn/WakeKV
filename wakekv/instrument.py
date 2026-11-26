@@ -35,8 +35,12 @@ class RunLog:
     needle_score: np.ndarray | None  # float32 [S, L, H]
     copy_paste: np.ndarray | None  # bool [S, L, H]
     page_max: np.ndarray | None = None  # float16 [S, L, H, P], 0 past ctx
+    # Optional Phase-3 detector fields (large; written beside log.npz).
+    query: np.ndarray | None = None  # float16 [S, L, H, D]
     gen_token_ids: list[int] = field(default_factory=list)
     meta: dict = field(default_factory=dict)
+    # page -> (kmin, kmax) per (layer, head); saved as kmin.npz / kmax.npz
+    key_extrema: dict[str, tuple[np.ndarray, np.ndarray]] | None = None
 
     def save(self, out_dir: str | Path) -> Path:
         out = Path(out_dir)
@@ -53,8 +57,30 @@ class RunLog:
         if self.page_max is not None:
             arrays["page_max"] = self.page_max
         np.savez_compressed(out / "log.npz", **arrays)
+        if self.query is not None:
+            np.save(out / "query.npy", self.query)
+            self.meta["has_query"] = True
+        if self.key_extrema:
+            kmin = {k: v[0] for k, v in self.key_extrema.items()}
+            kmax = {k: v[1] for k, v in self.key_extrema.items()}
+            np.savez_compressed(out / "kmin.npz", **kmin)
+            np.savez_compressed(out / "kmax.npz", **kmax)
+            self.meta["has_key_extrema"] = True
         (out / "meta.json").write_text(json.dumps(self.meta, indent=2))
         return out
+
+
+def page_key_extrema(keys: np.ndarray, page_size: int) -> tuple[np.ndarray, np.ndarray]:
+    """``keys`` [T, D] → dense ``kmin``/``kmax`` [n_pages, D]."""
+    t, d = keys.shape
+    n_pages = (t + page_size - 1) // page_size
+    kmin = np.full((n_pages, d), np.inf, dtype=np.float32)
+    kmax = np.full((n_pages, d), -np.inf, dtype=np.float32)
+    for p in range(n_pages):
+        chunk = keys[p * page_size : min(t, (p + 1) * page_size)]
+        kmin[p] = chunk.min(axis=0)
+        kmax[p] = chunk.max(axis=0)
+    return kmin, kmax
 
 
 def find_token_span(tokenizer, full_text: str, substring: str) -> tuple[int, int]:

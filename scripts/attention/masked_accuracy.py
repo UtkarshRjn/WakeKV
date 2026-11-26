@@ -1,20 +1,19 @@
 #!/usr/bin/env python
-"""Task accuracy under full attention, destructive eviction, and recall.
+"""Task accuracy under full / frozen / destructive / reversible residency.
 
-A stock 4D mask is shared across heads. This script patches Mistral's eager
-attention so each query head can hide its own pages. Demand is the top-64
-of a full-attention forward. The token is then taken from a second forward
-that can see only the pages the policy left resident. Eviction never
-re-admits a page. Recall fetches it back under the same LRU budget.
+Oracle full-attention demand drives the residency controller; the next
+token is taken from a second forward that can see only resident pages.
+Both forwards share the same generated-token prefix within a cell.
+Across cells, each (mode, budget) generates its own history.
 
-One NIAH prompt and one MATH-500 problem. The NIAH full-attention pass also
-records page maxima and scores a causal prefetch against the top-64 pages.
+Writes ``--out`` after every completed cell and skips finished keys on
+resume. Still an oracle-assisted accuracy experiment, not a deployable
+offloading benchmark.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -23,10 +22,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from wakekv.grading import grade
 from wakekv.instrument import chunked_prefill, page_max_from_row
+from wakekv.masked_eval import atomic_write, cell_key, job_grid, load_checkpoint
 from wakekv.page_summary import prefetch_recall
 from wakekv.reactive_controller import ReactiveController
+from wakekv.residency import classify_unstable
 from wakekv.tasks.cot import build_cot_prompt, load_problems
+from wakekv.tasks.multiturn import build_multiturn_prompt
 from wakekv.tasks.niah import build_niah_prompt
 
 
@@ -40,7 +43,6 @@ def install_mistral_mask() -> None:
 
     if getattr(mm, "_wakekv_mask_installed", False):
         return
-    orig_names = True  # patch the module global the layer forward calls
 
     def wrapped(module, query, key, value, attention_mask, scaling, dropout=0.0, **kwargs):
         key_states = mm.repeat_kv(key, module.num_key_value_groups)
@@ -58,7 +60,7 @@ def install_mistral_mask() -> None:
         return out, attn
 
     mm.eager_attention_forward = wrapped
-    mm._wakekv_mask_installed = orig_names
+    mm._wakekv_mask_installed = True
 
 
 def clone_cache(past):
@@ -75,43 +77,103 @@ def clone_cache(past):
 
 
 def demand_from_attentions(attentions, page_size: int, topk: int) -> list[set[int]]:
-    """One set of pages per (layer, query head), flattened layer-major."""
     wanted: list[set[int]] = []
     for layer in attentions:
-        # layer: [batch, heads, q, k]
         row = layer[0, :, -1, :].float()
         k = min(topk, row.shape[-1])
         idx = torch.topk(row, k, dim=-1).indices
         pages = idx // page_size
         for head in range(pages.shape[0]):
-            wanted.append(set(pages[head].tolist()))
+            wanted.append(set(int(p) for p in pages[head].tolist()))
     return wanted
 
 
-def resident_mask(controller: ReactiveController, n_layers: int, n_heads: int,
-                  ctx: int, page_size: int, device) -> dict[int, torch.Tensor]:
+def attention_mass_retained(
+    attentions, controller: ReactiveController, n_layers: int, n_heads: int, page_size: int
+) -> float:
+    """Fraction of oracle attention mass that lands on currently resident pages."""
+    kept = total = 0.0
+    for layer_i, layer in enumerate(attentions):
+        row = layer[0, :, -1, :].float()  # [H, ctx]
+        ctx = row.shape[-1]
+        for head in range(n_heads):
+            unit = layer_i * n_heads + head
+            mass = row[head]
+            total += float(mass.sum())
+            for page in controller.resident_pages(unit):
+                start = page * page_size
+                end = min(ctx, start + page_size)
+                if start < ctx:
+                    kept += float(mass[start:end].sum())
+            # query token always visible
+            kept += float(mass[-1])
+    return kept / total if total > 0 else 1.0
+
+
+def resident_mask(
+    controller: ReactiveController,
+    n_layers: int,
+    n_heads: int,
+    ctx: int,
+    page_size: int,
+    device,
+    unstable: set[int] | None = None,
+    budget: int = 0,
+) -> dict[int, torch.Tensor]:
     masks = {}
+    unstable = unstable or set()
     for layer in range(n_layers):
         allowed = torch.zeros(n_heads, ctx, device=device)
         for head in range(n_heads):
             unit = layer * n_heads + head
-            for page in controller._resident[unit]:
-                start = page * page_size
-                end = min(ctx, start + page_size)
-                if start < ctx:
-                    allowed[head, start:end] = 1
-        allowed[:, -1] = 1  # the query token stays visible
+            if unit in unstable:
+                allowed[head, :] = 1
+            else:
+                pages = controller.resident_pages(unit)
+                if budget > 0 and len(pages) > budget:
+                    raise AssertionError(
+                        f"unit {unit} has {len(pages)} resident pages > budget {budget}"
+                    )
+                for page in pages:
+                    start = page * page_size
+                    end = min(ctx, start + page_size)
+                    if start < ctx:
+                        allowed[head, start:end] = 1
+            allowed[head, -1] = 1
         additive = torch.zeros(1, n_heads, 1, ctx, device=device)
         additive = additive.masked_fill(allowed[None, :, None, :] == 0, float("-inf"))
         masks[layer] = additive
     return masks
 
 
+def _fit_unstable_from_demands(
+    demand_history: list[list[set[int]]], n_units: int, unstable_frac: float, prefix: int
+) -> set[int]:
+    prefix_stream = demand_history[:prefix] if demand_history else []
+    if len(prefix_stream) < 2:
+        return set()
+    return classify_unstable(prefix_stream, n_units, unstable_frac)
+
+
 @torch.no_grad()
-def generate(model, input_ids, past, mode: str, budget: int, page_size: int,
-             max_new_tokens: int, topk: int) -> tuple[list[int], dict]:
-    """``past`` holds every prompt token except the last. ``input_ids[:, -1]``
-    is that last prompt token and is not yet in the cache."""
+def generate(
+    model,
+    input_ids,
+    past,
+    mode: str,
+    budget: int,
+    page_size: int,
+    max_new_tokens: int,
+    topk: int,
+    unstable_frac: float = 0.25,
+    frozen_prefix: int = 32,
+    frozen_refresh: int = 16,
+) -> tuple[list[int], dict]:
+    """``past`` holds every prompt token except the last.
+
+    Oracle and masked forwards share the same query token each step.
+    Cross-policy histories diverge because each mode emits its own tokens.
+    """
     cfg = model.config
     n_layers = cfg.num_hidden_layers
     n_heads = cfg.num_attention_heads
@@ -119,26 +181,74 @@ def generate(model, input_ids, past, mode: str, budget: int, page_size: int,
     device = input_ids.device
     eos = cfg.eos_token_id
     eos_ids = set(eos if isinstance(eos, list) else [eos])
-    demotion = "offload" if mode == "reactive" else "evict"
-    ctrl = ReactiveController(n_units, max(budget, 1), rerank_interval=1, demotion=demotion)
+
+    demotion = "offload" if mode in ("reactive", "frozen", "full") else "evict"
+    # Frozen uses a large LRU for unstable heads via mask bypass; stable use budget.
+    ctrl_budget = max(budget, 1) if mode != "full" else max(n_units * 64, 1)
+    ctrl = ReactiveController(n_units, ctrl_budget, rerank_interval=1, demotion=demotion)
     past_full = past
     past_body = clone_cache(past) if mode != "full" else None
     cur = input_ids[:, -1:]
     page_rows: list = []
     top_rows: list = []
     gen: list[int] = []
+    demand_history: list[list[set[int]]] = []
+    unstable: set[int] = set()
+    mass_sum = 0.0
+    mass_steps = 0
+    window_demand: list[dict[int, int]] = [dict() for _ in range(n_units)]
 
-    def observe(out) -> None:
+    def observe(out) -> list[set[int]]:
+        nonlocal unstable
         wanted = demand_from_attentions(out.attentions, page_size, topk)
+        demand_history.append(wanted)
+        if mode == "frozen" and len(demand_history) == frozen_prefix:
+            unstable = _fit_unstable_from_demands(
+                demand_history, n_units, unstable_frac, frozen_prefix
+            )
         ctrl.begin_step(ctrl.stats.steps)
-        for unit, pages in enumerate(wanted):
-            ctrl.on_unit_lru(unit, pages)
+        if mode == "frozen":
+            step = ctrl.stats.steps
+            for unit, pages in enumerate(wanted):
+                if unit in unstable:
+                    # Keep everything ever demanded for unstable heads.
+                    for p in pages:
+                        ctrl._resident[unit][p] = step
+                    ctrl.stats.total_wanted += len(pages)
+                else:
+                    ctrl.on_unit_lru(unit, pages)
+                    for p in pages:
+                        window_demand[unit][p] = window_demand[unit].get(p, 0) + 1
+            if (step + 1) % frozen_refresh == 0:
+                for unit in range(n_units):
+                    if unit in unstable or not window_demand[unit]:
+                        continue
+                    top = sorted(
+                        window_demand[unit], key=window_demand[unit].get, reverse=True
+                    )[:budget]
+                    ctrl._resident[unit] = {p: step for p in top}
+                    window_demand[unit] = {}
+        elif mode == "full":
+            for unit, pages in enumerate(wanted):
+                for p in pages:
+                    ctrl._resident[unit][p] = ctrl.stats.steps
+                ctrl.stats.total_wanted += len(pages)
+        else:
+            for unit, pages in enumerate(wanted):
+                ctrl.on_unit_lru(unit, pages)
+                if budget > 0:
+                    assert len(ctrl.resident_pages(unit)) <= budget
         ctrl.end_step()
+        mass = attention_mass_retained(out.attentions, ctrl, n_layers, n_heads, page_size)
+        nonlocal mass_sum, mass_steps
+        mass_sum += mass
+        mass_steps += 1
         if mode == "full":
             row = torch.stack([a[0, :, -1, :].float() for a in out.attentions])
             page_rows.append(page_max_from_row(row, page_size).cpu().numpy())
             k = min(topk, row.shape[-1])
             top_rows.append(torch.topk(row, k, dim=-1).indices.cpu().numpy())
+        return wanted
 
     def next_token(query, full_past, masked_past):
         _Mask.active = False
@@ -150,7 +260,9 @@ def generate(model, input_ids, past, mode: str, budget: int, page_size: int,
             return int(oracle.logits[0, -1].argmax()), oracle.past_key_values, None
         ctx = masked_past.key_cache[0].shape[-2] + query.shape[-1]
         _Mask.by_layer = resident_mask(
-            ctrl, n_layers, n_heads, ctx, page_size, device
+            ctrl, n_layers, n_heads, ctx, page_size, device,
+            unstable=unstable if mode == "frozen" else None,
+            budget=budget if mode in ("evict", "reactive") else 0,
         )
         _Mask.active = True
         masked = model(
@@ -166,11 +278,17 @@ def generate(model, input_ids, past, mode: str, budget: int, page_size: int,
             break
         cur = torch.tensor([[nxt]], device=device)
         nxt, past_full, past_masked = next_token(cur, past_full, past_masked)
-    extra: dict = {}
-    if mode != "full":
-        extra["miss_rate"] = ctrl.stats.as_dict()["miss_rate"]
+
+    stats = ctrl.stats.as_dict()
+    extra: dict = {
+        "miss_rate": 0.0 if mode == "full" else float(stats["miss_rate"]),
+        "attention_mass_retained": mass_sum / mass_steps if mass_steps else 1.0,
+        "stats": stats,
+        "n_unstable": len(unstable),
+    }
     if page_rows:
         import numpy as np
+
         width = max(r.shape[-1] for r in page_rows)
         padded = [
             r if r.shape[-1] == width else np.pad(r, [(0, 0), (0, 0), (0, width - r.shape[-1])])
@@ -189,34 +307,68 @@ def generate(model, input_ids, past, mode: str, budget: int, page_size: int,
     return gen, extra
 
 
-def run_prompt(model, tokenizer, prompt: str, answer: str, kind: str, args) -> list[dict]:
-    device = next(model.parameters()).device
-    input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
-    base = model.model
-    print(f"[mask] prefill {kind} tokens={input_ids.shape[1]}", flush=True)
-    past = chunked_prefill(base, input_ids, args.prefill_chunk)
-    rows = []
-    jobs = [("full", 0)] + [
-        (mode, budget) for budget in args.budgets for mode in ("evict", "reactive")
-    ]
-    for mode, budget in jobs:
-        print(f"[mask] {kind} mode={mode} budget={budget}", flush=True)
-        gen, extra = generate(
-            model, input_ids, clone_cache(past), mode, budget or 1,
-            args.page_size, args.max_new_tokens, args.topk,
-        )
-        text = tokenizer.decode(gen)
-        rows.append({
-            "task": kind,
-            "mode": mode,
-            "budget": budget or None,
-            "correct": answer in text,
-            "generated": text,
-            "answer": answer,
-            **extra,
+def build_task_specs(tokenizer, args) -> list[dict]:
+    specs = []
+    for depth in args.niah_depths:
+        for seed in args.niah_seeds:
+            niah = build_niah_prompt(
+                tokenizer, args.context_tokens, depth_fraction=depth, seed=seed
+            )
+            specs.append({
+                "task_id": f"niah-d{depth}-s{seed}",
+                "kind": "niah",
+                "prompt": niah["prompt"],
+                "answer": niah["answer"],
+                "max_new_tokens": args.max_new_tokens,
+            })
+    problems = load_problems("math500", args.n_math)
+    from datasets import load_dataset
+
+    ds = load_dataset("HuggingFaceH4/MATH-500", split="test")
+    for i, problem in enumerate(problems):
+        math = build_cot_prompt(tokenizer, problem["problem"])
+        specs.append({
+            "task_id": f"math500-{i}",
+            "kind": "math",
+            "prompt": math["prompt"],
+            "answer": ds[i]["answer"],
+            "max_new_tokens": args.math_tokens,
         })
-        print(f"  correct={rows[-1]['correct']} miss_rate={extra['miss_rate']}", flush=True)
-    return rows
+    mt = build_multiturn_prompt(tokenizer)
+    specs.append({
+        "task_id": "multiturn-0",
+        "kind": "multiturn",
+        "prompt": mt["prompt"],
+        "answer": mt["answer"],
+        "max_new_tokens": args.multiturn_tokens,
+    })
+    return specs
+
+
+def run_cell(model, tokenizer, past, input_ids, spec: dict, mode: str, budget: int | None, args) -> dict:
+    gen, extra = generate(
+        model,
+        input_ids,
+        clone_cache(past),
+        mode,
+        budget or 1,
+        args.page_size,
+        spec["max_new_tokens"],
+        args.topk,
+        unstable_frac=args.unstable_frac,
+        frozen_prefix=args.frozen_prefix,
+    )
+    text = tokenizer.decode(gen)
+    return {
+        "task": spec["task_id"],
+        "kind": spec["kind"],
+        "mode": mode,
+        "budget": budget,
+        "correct": grade(spec["kind"], text, spec["answer"]),
+        "generated": text,
+        "answer": spec["answer"],
+        **extra,
+    }
 
 
 def main() -> None:
@@ -224,11 +376,17 @@ def main() -> None:
     ap.add_argument("--model", default="mistralai/Mistral-7B-Instruct-v0.2")
     ap.add_argument("--context-tokens", type=int, default=2048)
     ap.add_argument("--max-new-tokens", type=int, default=32)
-    ap.add_argument("--math-tokens", type=int, default=128)
-    ap.add_argument("--budgets", type=int, nargs="+", default=[8, 16])
+    ap.add_argument("--math-tokens", type=int, default=256)
+    ap.add_argument("--multiturn-tokens", type=int, default=128)
+    ap.add_argument("--budgets", type=int, nargs="+", default=[8, 16, 32, 64])
+    ap.add_argument("--niah-depths", type=float, nargs="+", default=[0.25, 0.5, 0.75])
+    ap.add_argument("--niah-seeds", type=int, nargs="+", default=[0, 1])
+    ap.add_argument("--n-math", type=int, default=5)
     ap.add_argument("--page-size", type=int, default=16)
     ap.add_argument("--topk", type=int, default=64)
     ap.add_argument("--prefill-chunk", type=int, default=512)
+    ap.add_argument("--unstable-frac", type=float, default=0.25)
+    ap.add_argument("--frozen-prefix", type=int, default=32)
     ap.add_argument("--out", default="runs/masked_accuracy.json")
     args = ap.parse_args()
 
@@ -239,25 +397,56 @@ def main() -> None:
         args.model, torch_dtype=dtype, device_map="cuda", attn_implementation="eager"
     )
     model.eval()
-    niah = build_niah_prompt(tokenizer, args.context_tokens, depth_fraction=0.5, seed=0)
-    rows = run_prompt(model, tokenizer, niah["prompt"], niah["answer"], "niah", args)
-    problems = load_problems("math500", 1)
-    math = build_cot_prompt(tokenizer, problems[0]["problem"])
-    # MATH-500 stores the answer separately; load it directly.
-    from datasets import load_dataset
-    answer = load_dataset("HuggingFaceH4/MATH-500", split="test")[0]["answer"]
-    saved_tokens = args.max_new_tokens
-    args.max_new_tokens = args.math_tokens
-    rows.extend(run_prompt(model, tokenizer, math["prompt"], answer, "math500-0", args))
-    args.max_new_tokens = saved_tokens
+
     out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({
-        "model": args.model,
-        "niah_context_tokens": args.context_tokens,
-        "rows": rows,
-    }, indent=2))
-    print(f"[mask] wrote {out}", flush=True)
+    state = load_checkpoint(out)
+    rows: list[dict] = list(state["rows"])
+    done: dict = dict(state["done"])
+    specs = build_task_specs(tokenizer, args)
+    jobs = job_grid(args.budgets)
+    device = next(model.parameters()).device
+
+    for spec in specs:
+        input_ids = tokenizer(spec["prompt"], return_tensors="pt").input_ids.to(device)
+        print(f"[mask] prefill {spec['task_id']} tokens={input_ids.shape[1]}", flush=True)
+        past = chunked_prefill(model.model, input_ids, args.prefill_chunk)
+        for mode, budget in jobs:
+            key = cell_key(spec["task_id"], mode, budget)
+            if key in done and "error" not in done[key]:
+                print(f"[mask] skip {key}", flush=True)
+                continue
+            print(f"[mask] {key}", flush=True)
+            try:
+                row = run_cell(model, tokenizer, past, input_ids, spec, mode, budget, args)
+            except Exception as exc:  # noqa: BLE001 — per-cell isolation
+                row = {
+                    "task": spec["task_id"],
+                    "kind": spec["kind"],
+                    "mode": mode,
+                    "budget": budget,
+                    "correct": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "miss_rate": None,
+                    "attention_mass_retained": None,
+                }
+                print(f"  ERROR {row['error']}", flush=True)
+            else:
+                print(
+                    f"  correct={row['correct']} miss_rate={row['miss_rate']} "
+                    f"mass={row['attention_mass_retained']:.3f}",
+                    flush=True,
+                )
+            # replace prior failed attempt if any
+            rows = [r for r in rows if cell_key(r["task"], r["mode"], r.get("budget")) != key]
+            rows.append(row)
+            done[key] = row
+            atomic_write(out, {
+                "model": args.model,
+                "niah_context_tokens": args.context_tokens,
+                "budgets": args.budgets,
+                "rows": rows,
+            })
+    print(f"[mask] wrote {out} ({len(rows)} rows)", flush=True)
 
 
 if __name__ == "__main__":
