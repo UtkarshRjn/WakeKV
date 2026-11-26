@@ -66,13 +66,26 @@ def install_mistral_mask() -> None:
 def clone_cache(past):
     from transformers.cache_utils import DynamicCache
 
-    new = DynamicCache()
+    if past is None:
+        return None
+    # Legacy tuple[(k,v), ...] from older HF returns.
+    if isinstance(past, tuple):
+        if hasattr(DynamicCache, "from_legacy_cache"):
+            past = DynamicCache.from_legacy_cache(past)
+        else:
+            new = DynamicCache()
+            new.key_cache = [k.clone() for k, _ in past]
+            new.value_cache = [v.clone() for _, v in past]
+            return new
     if hasattr(past, "key_cache"):
+        new = DynamicCache()
         new.key_cache = [t.clone() for t in past.key_cache]
         new.value_cache = [t.clone() for t in past.value_cache]
         if hasattr(past, "_seen_tokens"):
             new._seen_tokens = past._seen_tokens
         return new
+    if hasattr(past, "to_legacy_cache") and hasattr(DynamicCache, "from_legacy_cache"):
+        return DynamicCache.from_legacy_cache(past.to_legacy_cache())
     raise TypeError(f"unsupported cache type {type(past)}")
 
 
@@ -436,6 +449,8 @@ def main() -> None:
                     f"mass={row['attention_mass_retained']:.3f}",
                     flush=True,
                 )
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             # replace prior failed attempt if any
             rows = [r for r in rows if cell_key(r["task"], r["mode"], r.get("budget")) != key]
             rows.append(row)

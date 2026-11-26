@@ -109,6 +109,8 @@ def chunked_prefill(base, input_ids: torch.Tensor, chunk_size: int = 512):
     score matrix at ``heads × chunk × cache`` instead of ``heads × T × T``.
     Returns the KV cache. The KV itself may still not fit.
     """
+    from transformers.cache_utils import DynamicCache
+
     past = None
     body = input_ids[:, :-1]
     pos = 0
@@ -117,6 +119,9 @@ def chunked_prefill(base, input_ids: torch.Tensor, chunk_size: int = 512):
         end = min(n, pos + chunk_size)
         out = base(body[:, pos:end], past_key_values=past, use_cache=True)
         past = out.past_key_values
+        # Normalize legacy tuple caches so callers can clone consistently.
+        if isinstance(past, tuple) and hasattr(DynamicCache, "from_legacy_cache"):
+            past = DynamicCache.from_legacy_cache(past)
         pos = end
     return past
 
